@@ -29,6 +29,10 @@ namespace BeefLsp {
 			this.data = data;
 		}
 
+		public static Json Null() {
+			return .(.Null, .());
+		}
+
 		public static Json Object() {
 			JsonData data;
 			data.object = new .();

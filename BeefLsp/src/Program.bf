@@ -5,12 +5,10 @@ using BeefLsp;
 namespace BeefLsp {
 	class Program {
 		public static void Main(String[] args) {
-			Test(args);
-			return;
+			//Test(args);
+			//return;
 
 			scope Lsp().Start();
-
-			Console.Read();
 		}
 
 		private static void Test(String[] args) {

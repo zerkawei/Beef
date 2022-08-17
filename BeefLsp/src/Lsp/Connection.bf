@@ -54,14 +54,19 @@ namespace BeefLsp {
 					OnData();
 
 				case .Err:
-					Console.WriteLine("Connection closed");
-					open = false;
+					Stop();
 				}
 			}
 		}
 
+		public void Stop() {
+			Console.WriteLine("Closing connection");
+			open = false;
+		}
+
 		public void Send(Json json) {
-			String jsonStr = new:ScopedAlloc! .();
+			String jsonStr = new .();
+			defer delete jsonStr; // For some reason using ScopedAlloc! here was causing memory leaks
 			JsonWriter.Write(json, jsonStr);
 
 			String header = scope $"Content-Length: {jsonStr.Length}\r\n\r\n";
@@ -72,8 +77,10 @@ namespace BeefLsp {
 			Internal.MemCpy(data, header.Ptr, header.Length);
 			Internal.MemCpy(&data[header.Length], jsonStr.Ptr, jsonStr.Length);
 
-			int sent = client.Send(data, size);
-			if (sent != size) Console.WriteLine("Failed to send message");
+			if (client.IsConnected) {
+				int sent = client.Send(data, size);
+				if (sent != size) Console.WriteLine("Failed to send message");
+			}
 		}
 
 		private void OnData() {
