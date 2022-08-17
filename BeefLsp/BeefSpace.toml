@@ -3,3 +3,6 @@ Projects = {BeefLsp = {Path = "."}, Debugger64 = {Path = "../Debugger64"}, Beefy
 
 [Workspace]
 StartupProject = "BeefLsp"
+
+[Configs.Debug.Win64]
+AllocStackTraceDepth = 8

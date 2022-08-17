@@ -39,6 +39,15 @@ namespace BeefLsp {
 
 		}
 
+		private Result<Json> OnShutdown() {
+			Console.WriteLine("Shutting down");
+			return Json.Null();
+		}
+
+		private void OnExit() {
+			connection.Stop();
+		}
+
 		public void OnMessage(Json json) {
 			StringView method = json["method"].AsString;
 			Console.WriteLine("Received: {}", method);
@@ -47,6 +56,9 @@ namespace BeefLsp {
 
 			switch (method) {
 			case "initialize":             HandleRequest(json, OnInitialize(args));
+			case "shutdown":               HandleRequest(json, OnShutdown());
+			case "exit":                   OnExit();
+
 			case "textDocument/didOpen":   OnDidOpen(args);
 			case "textDocument/didChange": OnDidChange(args);
 			case "textDocument/didClose":  OnDidClose(args);
