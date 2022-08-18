@@ -6,3 +6,4 @@ Status: WIP
  - Initialization
  - Shutdown
  - Diagnostics
+ - Folding ranges

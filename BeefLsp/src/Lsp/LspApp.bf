@@ -58,16 +58,5 @@ namespace BeefLsp {
 
 			return worked;
 		}
-
-		private void PrintErrors(BfPassInstance pass) {
-			let count = pass.GetErrorCount();
-
-			for (int i < count) {
-				BfPassInstance.BfError error = scope .();
-				pass.GetErrorData(0, error, true);
-
-				Console.WriteLine("Error at line {}: {}", error.mLine, error.mError);
-			}
-		}
 	}
 }
