@@ -37,6 +37,22 @@ namespace BeefLsp {
 
 			return .(line, lineStart);
 		}
+
+		public int GetCharacter(int line, int lineCharacter) {
+			int currentLine = 0;
+
+			for (let char in contents.RawChars) {
+				if (char == '\n') {
+					currentLine++;
+
+					if (currentLine == line) {
+						return @char.Index + lineCharacter + 1;
+					}
+				}
+			}
+
+			return -1;
+		}
 	}
 
 	class DocumentManager {

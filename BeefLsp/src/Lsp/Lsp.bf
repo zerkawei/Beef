@@ -36,6 +36,11 @@ namespace BeefLsp {
 
 			cap["foldingRangeProvider"] = .Bool(true);
 
+			Json completionProvider = .Object();
+			cap["completionProvider"] = completionProvider;
+			completionProvider["triggerCharacters"] = .Array();
+			completionProvider["triggerCharacters"].Add(.String("."));
+
 			Json info = .Object();
 			res["serverInfo"] = info;
 			info["name"] = .String("beef-lsp");
@@ -286,6 +291,112 @@ namespace BeefLsp {
 			return ranges;
 		}
 
+		private Result<Json> OnCompletion(Json args) {
+			// Get path
+			String path = scope .();
+			if (!GetPath(args["textDocument"]["uri"].AsString, path)) return Json.Null();
+
+			// Get completion data
+			app.mBfBuildSystem.Lock(0);
+			defer app.mBfBuildSystem.Unlock();
+												
+			Document document = documents.Get(path);
+
+			int character = document.GetCharacter((.) args["position"]["line"].AsNumber, (.) args["position"]["character"].AsNumber);
+
+			String completionData = GetCompletionData(document, character, .. scope .());
+			if (completionData.IsEmpty) GetCompletionData(document, character, completionData); // For some reason when you type a letter and the completion is requested automatically the first call returns an empty string
+
+			// Parse data to json
+			Json items = .Array();
+
+			int start = -1;
+			int end = -1;
+
+			for (let line in completionData.Split('\n', .RemoveEmptyEntries)) {
+				// Parse completion item
+				var it = line.Split('\t');
+				StringView type = it.GetNext().Value;
+
+				int kind = -1;
+
+				switch (type) {
+				case "method":      kind = 2;
+				case "extmethod":   kind = 2;
+				case "field":       kind = 5;
+				case "property":    kind = 10;
+				case "namespace":   kind = 9;
+				case "class":       kind = 7;
+				case "interface":   kind = 8;
+				case "valuetype":   kind = 22;
+				case "object":      kind = 5;
+				case "pointer":     kind = 18;
+				case "value":       kind = 12;
+				case "payloadEnum": kind = 20;
+				case "generic":     kind = 1;
+				case "folder":      kind = 19;
+				case "file":        kind = 17;
+				case "mixin":       kind = 2;
+				case "token":       kind = 14;
+				}
+
+				if (kind == -1) {
+					switch (type) {
+					case "insertRange":
+						var it2 = it.GetNext().Value.Split(' ');
+						start = int.Parse(it2.GetNext().Value);
+						end = int.Parse(it2.GetNext().Value);
+					default: Console.WriteLine("Unknown completion type: {}", line);
+					}
+
+					continue;
+				}
+
+				if (start == -1) {
+					Console.WriteLine("Tried to create completion item before 'insertRange' was detected");
+					continue;
+				}
+
+				StringView text = it.GetNext().Value;
+
+				int matchesPos = text.IndexOf('\x02');
+				if (matchesPos != -1) {
+					text = text[0...matchesPos - 1];
+				}
+
+				int docPos = text.IndexOf('\x03');
+				if (docPos != -1) {
+					text = text[0...docPos - 1];
+				}
+
+				// Create json
+				Json json = .Object();
+				items.Add(json);
+
+				json["label"] = .String(text);
+				json["kind"] = .Number(kind);
+			}
+
+			return items;
+		}
+
+		private void GetCompletionData(Document document, int character, String buffer) {
+			ProjectSource source = app.FindProjectSourceItem(document.path);
+			BfParser parser = app.mBfBuildSystem.FindParser(source);
+
+			let pass = app.mBfBuildSystem.CreatePassInstance("AutoCompletion");
+			defer delete pass;
+
+			let passData = parser.CreateResolvePassData();
+			defer delete passData;
+
+			parser.SetAutocomplete(character);
+			parser.BuildDefs(pass, passData, false);
+			app.compiler.ClassifySource(pass, passData);
+
+			app.compiler.GetAutocompleteInfo(buffer);
+		}
+
 		private Result<Json> OnShutdown() {
 			Console.WriteLine("Shutting down");
 
@@ -316,6 +427,7 @@ namespace BeefLsp {
 			case "textDocument/didClose":     OnDidClose(args);
 
 			case "textDocument/foldingRange": HandleRequest(json, OnFoldingRange(args));
+			case "textDocument/completion":   HandleRequest(json, OnCompletion(args));
 			}
 		}
 

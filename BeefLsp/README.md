@@ -7,3 +7,4 @@ Status: WIP
  - Shutdown
  - Diagnostics
  - Folding ranges
+ - Auto completions (WIP)
