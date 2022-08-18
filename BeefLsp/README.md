@@ -1,7 +1,8 @@
 # Beef LSP
 Language server implementation for Beef.  
-Status: not working at all, WIP
+Status: WIP
 
 ## Implemented Features
  - Initialization
  - Shutdown
+ - Diagnostics
