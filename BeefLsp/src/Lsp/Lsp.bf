@@ -3,6 +3,7 @@ using System.Collections;
 using System.Diagnostics;
 
 using IDE;
+using IDE.ui;
 using IDE.Compiler;
 
 namespace BeefLsp {
@@ -10,6 +11,7 @@ namespace BeefLsp {
 		private Connection connection = new .(this) ~ delete _;
 		private LspApp app = new .() ~ delete _;
 
+		private DocumentManager documents = new .() ~ delete _;
 		private List<String> sentDiagnosticsUris = new .() ~ DeleteContainerAndItems!(_);
 
 		public void Start() {
@@ -31,6 +33,8 @@ namespace BeefLsp {
 			cap["textDocumentSync"] = documentSync;
 			documentSync["openClose"] = .Bool(true);
 			documentSync["change"] = .Number(1); // Full sync
+
+			cap["foldingRangeProvider"] = .Bool(true);
 
 			Json info = .Object();
 			res["serverInfo"] = info;
@@ -136,21 +140,26 @@ namespace BeefLsp {
 		}
 
 		private void OnDidOpen(Json args) {
+			Json j = args["textDocument"];
 
+			// Get path
+			String path = scope .();
+			if (!GetPath(j["uri"].AsString, path)) return;
+
+			// Add
+			String contents = new .();
+			j["text"].AsString.Unescape(contents);
+
+			Document document = documents.Add(path, (.) j["version"].AsNumber, contents);
+
+			// Parse
+			ParseDocument(document);
 		}
 
 		private void OnDidChange(Json args) {
 			// Get path
-			StringView uri = args["textDocument"]["uri"].AsString;
-			if (!uri.StartsWith("file:///")) {
-				Console.WriteLine("Invalid URI, only file:/// URIs are supported: %s", uri);
-				return;
-			}
-
-			String path = scope .(uri[8...]);
-			path.Replace("%3A", ":");
-			IDEUtils.FixFilePath(path);
-			if (path[1] == ':' && path[2] == '\\' && path[3] != '\\') path.Insert(2, '\\');
+			String path = scope .();
+			if (!GetPath(args["textDocument"]["uri"].AsString, path)) return;
 
 			// Get contents
 			StringView contentsRaw;
@@ -161,18 +170,25 @@ namespace BeefLsp {
 			String contents = scope .(contentsRaw.Length);
 			contentsRaw.Unescape(contents);
 
+			// Update document
+			Document document = documents.Get(path);
+			document.SetContents((.) args["textDocument"]["version"].AsNumber, contents);
+
 			// Parse
+			ParseDocument(document);
+		}
+
+		private void ParseDocument(Document document) {
 			app.mBfBuildSystem.Lock(0);
 			defer app.mBfBuildSystem.Unlock();
 
-			ProjectSource source = app.FindProjectSourceItem(scope .(path));
-
+			ProjectSource source = app.FindProjectSourceItem(document.path);
 			BfParser parser = app.mBfBuildSystem.CreateParser(source);
 
 			BfPassInstance pass = app.mBfBuildSystem.CreatePassInstance("Parse");
 			defer delete pass;
 
-			parser.SetSource(contents, path, -1);
+			parser.SetSource(document.contents, document.path, -1);
 			parser.Parse(pass, false);
 			parser.Reduce(pass);
 			parser.BuildDefs(pass, null, false);
@@ -183,11 +199,91 @@ namespace BeefLsp {
 
 			app.compiler.ClassifySource(pass, passData);
 
+			// Publish diagnostics
 			PublishDiagnostics(pass);
 		}
 
-		private void OnDidClose(Json args) {
+		private bool GetPath(StringView uri, String buffer) {
+			if (!uri.StartsWith("file:///")) {
+				Console.WriteLine("Invalid URI, only file:/// URIs are supported: %s", uri);
+				return false;
+			}
 
+			buffer.Set(uri[8...]);
+			buffer.Replace("%3A", ":");
+			IDEUtils.FixFilePath(buffer);
+			if (buffer[1] == ':' && buffer[2] == '\\' && buffer[3] != '\\') buffer.Insert(2, '\\');
+
+			return true;
+
+		}
+
+		private void OnDidClose(Json args) {
+			// Get path
+			String path = scope .();
+			if (!GetPath(args["textDocument"]["uri"].AsString, path)) return;
+
+			// Remove
+			documents.Remove(path);
+		}
+
+		private Result<Json> OnFoldingRange(Json args) {
+			// Get path
+			String path = scope .();
+			if (!GetPath(args["textDocument"]["uri"].AsString, path)) return Json.Null();
+
+			// Get folding range data
+			app.mBfBuildSystem.Lock(0);
+			defer app.mBfBuildSystem.Unlock();
+
+			Document document = documents.Get(path);
+			ProjectSource source = app.FindProjectSourceItem(path);
+			BfParser parser = app.mBfBuildSystem.FindParser(source);
+
+			var resolvePassData = parser.CreateResolvePassData(.None);
+			defer delete resolvePassData;
+
+			String collapseData = app.compiler.GetCollapseRegions(parser, resolvePassData, "", .. scope .());
+
+			// Parse data to json
+			Json ranges = .Array();
+
+			for (var line in collapseData.Split('\n', .RemoveEmptyEntries)) {
+				let original = line;
+
+				// Parse folding range
+				SourceEditWidgetContent.CollapseEntry.Kind kind = (.) line[0];
+				line.RemoveFromStart(1);
+
+				var it = line.Split(',');
+				int start = int.Parse(it.GetNext().Value);
+				int end = int.Parse(it.GetNext().Value);
+
+				if (it.HasMore) {
+					Console.WriteLine("Unknown folding range data '{}'", original);
+					continue;
+				}
+
+				LineInfo startLine = document.GetLineInfo(start);
+				LineInfo endLine = document.GetLineInfo(end);
+
+				// Create json
+				Json json = .Object();
+				ranges.Add(json);
+
+				json["startLine"] = .Number(startLine.line - 1);
+				//json["startCharacter"] = .Number(startLine.start - start);
+				json["endLine"] = .Number(endLine.line - 2);
+				//json["endCharacter"] = .Number(endLine.start - end);
+
+				switch (kind) {
+				case .Comment: json["kind"] = .String("comment");
+				case .Region:  json["kind"] = .String("region");
+				default:       json["kind"] = .String(kind.ToString(.. scope .()));
+				}
+			}
+
+			return ranges;
 		}
 
 		private Result<Json> OnShutdown() {
@@ -210,14 +306,16 @@ namespace BeefLsp {
 			Json args = json["params"];
 
 			switch (method) {
-			case "initialize":             HandleRequest(json, OnInitialize(args));
-			case "initialized":            OnInitialized();
-			case "shutdown":               HandleRequest(json, OnShutdown());
-			case "exit":                   OnExit();
+			case "initialize":                HandleRequest(json, OnInitialize(args));
+			case "initialized":               OnInitialized();
+			case "shutdown":                  HandleRequest(json, OnShutdown());
+			case "exit":                      OnExit();
 
-			case "textDocument/didOpen":   OnDidOpen(args);
-			case "textDocument/didChange": OnDidChange(args);
-			case "textDocument/didClose":  OnDidClose(args);
+			case "textDocument/didOpen":      OnDidOpen(args);
+			case "textDocument/didChange":    OnDidChange(args);
+			case "textDocument/didClose":     OnDidClose(args);
+
+			case "textDocument/foldingRange": HandleRequest(json, OnFoldingRange(args));
 			}
 		}
 
