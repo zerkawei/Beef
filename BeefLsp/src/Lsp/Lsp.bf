@@ -43,11 +43,11 @@ namespace BeefLsp {
 			Json documentSymbolProvider = .Object();
 			cap["documentSymbolProvider"] = documentSymbolProvider;
 			documentSymbolProvider["label"] = .String("Beef Lsp");
-			documentSymbolProvider["triggerCharacters"] = .Array()..Add(.String("("));
-			documentSymbolProvider["retriggerCharacters"] = .Array()..Add(.String(","));
 
 			Json signatureHelpProvider = .Object();
 			cap["signatureHelpProvider"] = signatureHelpProvider;
+			signatureHelpProvider["triggerCharacters"] = .Array()..Add(.String("("));
+			signatureHelpProvider["retriggerCharacters"] = .Array()..Add(.String(","));
 
 			Json info = .Object();
 			res["serverInfo"] = info;
