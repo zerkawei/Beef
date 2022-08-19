@@ -11,3 +11,4 @@ Status: WIP
  - Document symbols
  - Signature help
  - Hover
+ - Go to definition
