@@ -41,6 +41,10 @@ namespace BeefLsp {
 			completionProvider["triggerCharacters"] = .Array();
 			completionProvider["triggerCharacters"].Add(.String("."));
 
+			Json documentSymbolProvider = .Object();
+			cap["documentSymbolProvider"] = documentSymbolProvider;
+			documentSymbolProvider["label"] = .String("Beef Lsp");
+
 			Json info = .Object();
 			res["serverInfo"] = info;
 			info["name"] = .String("beef-lsp");
@@ -306,14 +310,13 @@ namespace BeefLsp {
 			// Get completion data
 			app.mBfBuildSystem.Lock(0);
 			defer app.mBfBuildSystem.Unlock();
-												
+			
 			Document document = documents.Get(path);
 
 			int character = document.GetCharacter((.) args["position"]["line"].AsNumber, (.) args["position"]["character"].AsNumber);
 
-			String completionData = GetCompletionData(document, character, .. scope .());
-			if (completionData.IsEmpty) GetCompletionData(document, character, completionData); // For some reason when you type a letter and the completion is requested automatically the first call returns an empty string
-
+			String completionData = GetCompilerData(document, .Completions, character, .. scope .());
+			
 			// Parse data to json
 			Json items = .Array();
 
@@ -387,21 +390,207 @@ namespace BeefLsp {
 			return items;
 		}
 
-		private void GetCompletionData(Document document, int character, String buffer) {
-			ProjectSource source = app.FindProjectSourceItem(document.path);
-			BfParser parser = app.mBfBuildSystem.FindParser(source);
+		struct Symbol : this(StringView name, int kind, int line, int column) {}
+		class SymbolGroup {
+			public Symbol symbol;
 
-			let pass = app.mBfBuildSystem.CreatePassInstance("AutoCompletion");
+			public List<SymbolGroup> groups = new .() ~ delete _;
+			public List<Symbol> symbols = new .() ~ delete _;
+
+			public this(Symbol symbol) {
+				this.symbol = symbol;
+			}
+		}
+
+		private Result<Json> OnDocumentSymbol(Json args) {
+			// Get path
+			String path = scope .();
+			if (!GetPath(args["textDocument"]["uri"].AsString, path)) return Json.Null();
+
+			// Get navigation data
+			app.mBfBuildSystem.Lock(0);
+			defer app.mBfBuildSystem.Unlock();
+			
+			Document document = documents.Get(path);
+
+			String navigationData = GetCompilerData(document, .Navigation, 0, .. scope .());
+
+			// Parse data
+			List<Symbol> symbols = scope .();
+
+			for (let line in navigationData.Split('\n', .RemoveEmptyEntries)) {
+				// Parse symbol
+				var it = line.Split('\t', .RemoveEmptyEntries);
+
+				StringView name = it.GetNext().Value;
+				StringView type = it.GetNext().Value;
+				int line = int.Parse(it.GetNext().Value);
+				int column = int.Parse(it.GetNext().Value);
+
+				int kind;
+
+				switch (type) {
+				case "method":    kind = 6;
+				case "extmethod": kind = 6;
+				case "property":  kind = 7;
+				case "class":     kind = 5;
+				case "enum":      kind = 10;
+				case "struct":    kind = 23;
+				case "typealias": kind = 26; // TODO: Currently set to TypeParameter
+				default:
+					Console.WriteLine("Unknown navigation data: {}", line);
+					continue;
+				}
+
+				symbols.Add(.(name, kind, line, column));
+			}
+
+			// Create symbol hierarchy
+			Dictionary<StringView, SymbolGroup> groups = scope .();
+			defer { for (let group in groups.Values) delete group; }
+
+			mixin GetSymbol(StringView name) {
+				Symbol symbol = default;
+
+				for (let sym in symbols) {
+					if (sym.name == name) {
+						symbol = sym;
+						break;
+					}
+				}
+
+				symbol
+			}
+
+			for (let symbol in symbols) {
+				int index = SymbolGetLastDotIndex!(symbol);
+
+				SymbolGroup prevGroup = null;
+				bool first = true;
+				
+				while (index != -1) {
+					StringView groupName = symbol.name[0...index - 1];
+
+					SymbolGroup group = groups.GetValueOrDefault(groupName);
+					if (group == null) groups[groupName] = group = new .(GetSymbol!(groupName));
+
+					if (prevGroup != null && !group.groups.Contains(prevGroup)) {
+						group.groups.Add(prevGroup);
+
+						for (let sym in group.symbols) {
+							if (sym.name == prevGroup.symbol.name) {
+								@sym.Remove();
+								break;
+							}
+						}
+					}
+
+					index = groupName.LastIndexOf('.');
+					prevGroup = group;
+
+					if (first) {
+						group.symbols.Add(symbol);
+						first = false;
+					}
+				}
+			}
+
+			// Create json
+			Json jsonSymbols = .Array();
+
+			for (let group in groups.Values) {
+				if (group.symbol.name.Contains('.')) continue;
+
+				jsonSymbols.Add(SymbolGroupToJson(group));
+			}
+
+			return jsonSymbols;
+		}
+
+		private mixin SymbolGetLastDotIndex(Symbol symbol) {
+			int parenIndex = symbol.name.IndexOf('(');
+
+			int index;
+			if (parenIndex == -1) index = symbol.name.LastIndexOf('.');
+			else index = symbol.name[0...parenIndex - 1].LastIndexOf('.');
+
+			index
+		}
+
+		private Json SymbolGroupToJson(SymbolGroup group) {
+			Json json = SymbolToJson(group.symbol);
+
+			if (!group.groups.IsEmpty || !group.symbols.IsEmpty) {
+				Json children = .Array();
+				json["children"] = children;
+
+				// Groups
+				for (let childGroup in group.groups) {
+					children.Add(SymbolGroupToJson(childGroup));
+				}
+
+				// Symbols
+				for (let childSymbol in group.symbols) {
+					children.Add(SymbolToJson(childSymbol));
+				}
+			}
+
+			return json;
+		}
+
+		private Json SymbolToJson(Symbol symbol) {
+			Json json = .Object();
+
+			int index = SymbolGetLastDotIndex!(symbol);
+
+			json["name"] = .String(index == -1 ? symbol.name : symbol.name.Substring(index + 1));
+			json["kind"] = .Number(symbol.kind);
+			json["range"] = Range(symbol.line, symbol.column, symbol.line, symbol.column);
+			json["selectionRange"] = Range(symbol.line, symbol.column, symbol.line, symbol.column);
+
+			return json;
+		}
+
+		enum CompilerDataType {
+			Completions,
+			Navigation
+		}
+
+		private void GetCompilerData(Document document, CompilerDataType type, int character, String buffer) {
+			ProjectSource source = app.FindProjectSourceItem(document.path);
+			BfParser parser = app.mBfBuildSystem.CreateParser(source, false);
+
+			String name;
+			switch (type) {
+			case .Completions: name = "GetCompilerData - Completions";
+			case .Navigation:  name = "GetCompilerData - Navigation";
+			}
+
+			let pass = app.mBfBuildSystem.CreatePassInstance(name);
 			defer delete pass;
 
-			let passData = parser.CreateResolvePassData();
+			ResolveType resolveType;
+			switch (type) {
+			case .Completions: resolveType = .Autocomplete;
+			case .Navigation:  resolveType = .GetNavigationData;
+			}
+
+			parser.SetIsClassifying();
+			parser.SetSource(document.contents, document.path, -1);
+			parser.SetAutocomplete(type == .Completions ? character : -1);
+
+			let passData = parser.CreateResolvePassData(resolveType);
 			defer delete passData;
 
-			parser.SetAutocomplete(character);
+			parser.Parse(pass, false);
+			parser.Reduce(pass);
 			parser.BuildDefs(pass, passData, false);
 			app.compiler.ClassifySource(pass, passData);
 
 			app.compiler.GetAutocompleteInfo(buffer);
+
+			delete parser;
+			app.mBfBuildSystem.RemoveOldData();
 		}
 
 		private Result<Json> OnShutdown() {
@@ -424,17 +613,18 @@ namespace BeefLsp {
 			Json args = json["params"];
 
 			switch (method) {
-			case "initialize":                HandleRequest(json, OnInitialize(args));
-			case "initialized":               OnInitialized();
-			case "shutdown":                  HandleRequest(json, OnShutdown());
-			case "exit":                      OnExit();
+			case "initialize":                  HandleRequest(json, OnInitialize(args));
+			case "initialized":                 OnInitialized();
+			case "shutdown":                    HandleRequest(json, OnShutdown());
+			case "exit":                        OnExit();
 
-			case "textDocument/didOpen":      OnDidOpen(args);
-			case "textDocument/didChange":    OnDidChange(args);
-			case "textDocument/didClose":     OnDidClose(args);
+			case "textDocument/didOpen":        OnDidOpen(args);
+			case "textDocument/didChange":      OnDidChange(args);
+			case "textDocument/didClose":       OnDidClose(args);
 
-			case "textDocument/foldingRange": HandleRequest(json, OnFoldingRange(args));
-			case "textDocument/completion":   HandleRequest(json, OnCompletion(args));
+			case "textDocument/foldingRange":   HandleRequest(json, OnFoldingRange(args));
+			case "textDocument/completion":     HandleRequest(json, OnCompletion(args));
+			case "textDocument/documentSymbol": HandleRequest(json, OnDocumentSymbol(args));
 			}
 		}
 

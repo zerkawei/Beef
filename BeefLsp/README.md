@@ -8,3 +8,4 @@ Status: WIP
  - Diagnostics
  - Folding ranges
  - Auto completions (WIP)
+ - Document symbols
