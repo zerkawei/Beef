@@ -72,6 +72,8 @@ namespace BeefLsp {
 
 			app.compiler.ClassifySource(pass, passData);
 
+			Send("beef/initialized", Json.Null());
+
 			PublishDiagnostics(pass);
 		}
 
@@ -557,7 +559,8 @@ namespace BeefLsp {
 
 		enum CompilerDataType {
 			Completions,
-			Navigation
+			Navigation,
+			SymbolInfo
 		}
 
 		private void GetCompilerData(Document document, CompilerDataType type, int character, String buffer) {
@@ -568,6 +571,7 @@ namespace BeefLsp {
 			switch (type) {
 			case .Completions: name = "GetCompilerData - Completions";
 			case .Navigation:  name = "GetCompilerData - Navigation";
+			case .SymbolInfo:  name = "GetCompilerData - SymbolInfo";
 			}
 
 			let pass = app.mBfBuildSystem.CreatePassInstance(name);
@@ -577,8 +581,9 @@ namespace BeefLsp {
 			switch (type) {
 			case .Completions: resolveType = .Autocomplete;
 			case .Navigation:  resolveType = .GetNavigationData;
+			case .SymbolInfo:  resolveType = .GetSymbolInfo;
 			}
-
+			
 			parser.SetIsClassifying();
 			parser.SetSource(document.contents, document.path, -1);
 			parser.SetAutocomplete(type == .Completions ? character : -1);
