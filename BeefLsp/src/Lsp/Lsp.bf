@@ -49,6 +49,8 @@ namespace BeefLsp {
 			signatureHelpProvider["triggerCharacters"] = .Array()..Add(.String("("));
 			signatureHelpProvider["retriggerCharacters"] = .Array()..Add(.String(","));
 
+			cap["hoverProvider"] = .Object();
+
 			Json info = .Object();
 			res["serverInfo"] = info;
 			info["name"] = .String("beef-lsp");
@@ -560,7 +562,7 @@ namespace BeefLsp {
 		enum CompilerDataType {
 			Completions,
 			Navigation,
-			SymbolInfo
+			Hover
 		}
 
 		private void GetCompilerData(Document document, CompilerDataType type, int character, String buffer) {
@@ -571,7 +573,7 @@ namespace BeefLsp {
 			switch (type) {
 			case .Completions: name = "GetCompilerData - Completions";
 			case .Navigation:  name = "GetCompilerData - Navigation";
-			case .SymbolInfo:  name = "GetCompilerData - SymbolInfo";
+			case .Hover:  name = "GetCompilerData - Hover";
 			}
 
 			let pass = app.mBfBuildSystem.CreatePassInstance(name);
@@ -581,12 +583,12 @@ namespace BeefLsp {
 			switch (type) {
 			case .Completions: resolveType = .Autocomplete;
 			case .Navigation:  resolveType = .GetNavigationData;
-			case .SymbolInfo:  resolveType = .GetSymbolInfo;
+			case .Hover:  resolveType = .GetResultString;
 			}
 			
 			parser.SetIsClassifying();
 			parser.SetSource(document.contents, document.path, -1);
-			parser.SetAutocomplete(type == .Completions ? character : -1);
+			parser.SetAutocomplete(type == .Navigation ? -1 : character);
 
 			let passData = parser.CreateResolvePassData(resolveType);
 			defer delete passData;
@@ -688,18 +690,8 @@ namespace BeefLsp {
 
 				int documentationIndex = label.IndexOf('\x03');
 				if (documentationIndex != -1) {
-					documentation = label.Substring(documentationIndex + 1);
+					documentation = ParseDocumentation(label.Substring(documentationIndex + 1), .. scope:loop .());
 					label = label[0...documentationIndex - 1];
-
-					// Remove ///
-					String str = scope:loop .();
-
-					for (let line in Lines(documentation)) {
-						str.Append(line[3...]..Trim());
-						if (@line.HasMore) str.Append('\n');
-					}
-
-					documentation = str;
 
 				}
 
@@ -723,6 +715,13 @@ namespace BeefLsp {
 			return json;
 		}
 
+		private void ParseDocumentation(StringView documentation, String buffer) {
+			for (let line in Lines(documentation)) {
+				buffer.Append(line[3...]..TrimStart());
+				if (@line.HasMore) buffer.Append('\n');
+			}
+		}
+
 		private LineEnumerator Lines(StringView string) {
 			return .(string.Split('\n', .RemoveEmptyEntries));
 		}
@@ -742,6 +741,60 @@ namespace BeefLsp {
 				case .Err:         return .Err;
 				}
 			}
+		}
+
+		private Result<Json> OnHover(Json args) {
+			// Get path
+			String path = scope .();
+			if (!GetPath(args["textDocument"]["uri"].AsString, path)) return Json.Null();
+
+			// Get hover data
+			app.mBfBuildSystem.Lock(0);
+			defer app.mBfBuildSystem.Unlock();
+
+			Document document = documents.Get(path);
+
+			int cursor = document.GetCharacter((.) args["position"]["line"].AsNumber, (.) args["position"]["character"].AsNumber);
+
+			String hoverData = GetCompilerData(document, .Hover, cursor, .. scope .());
+
+			// Parse data
+			if (hoverData.IsEmpty) return Json.Null();
+
+			StringView hover = Lines(hoverData).GetNext().Value;
+			if (!hover.StartsWith(':')) return Json.Null();
+
+			hover.Adjust(1);
+			if (hover.StartsWith("class ")) hover.Adjust(6);
+
+			int documentationIndex = hover.IndexOf('\x03');
+			StringView documentation = "";
+
+			if (documentationIndex != -1) {
+				String docs = scope .();
+
+				for (let line in hover.Substring(documentationIndex + 1).Split('\t', .RemoveEmptyEntries)) {
+					int a = 1;
+					if (line.EndsWith('\x03')) a++;
+					if (line.EndsWith("\r\x03")) a++;
+
+					docs.Append(line[...^a]);
+					docs.Append("  \n");
+				}
+
+				documentation = ParseDocumentation(docs, .. scope:: .());
+				hover = hover[0...documentationIndex - 1];
+			}
+
+			// Create json
+			Json json = .Object();
+
+			Json contents = .Object();
+			json["contents"] = contents;
+			contents["kind"] = .String("markdown");
+			contents["value"] = .String(documentation.IsEmpty ? hover : scope $"{hover}  \n  \n{documentation}");
+
+			return json;
 		}
 
 		private Result<Json> OnShutdown() {
@@ -777,6 +830,7 @@ namespace BeefLsp {
 			case "textDocument/completion":     HandleRequest(json, OnCompletion(args));
 			case "textDocument/documentSymbol": HandleRequest(json, OnDocumentSymbol(args));
 			case "textDocument/signatureHelp":  HandleRequest(json, OnSignatureHelp(args));
+			case "textDocument/hover":          HandleRequest(json, OnHover(args));
 			}
 		}
 
