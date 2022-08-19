@@ -51,6 +51,8 @@ namespace BeefLsp {
 
 			cap["hoverProvider"] = .Object();
 
+			cap["definitionProvider"] = .Object();
+
 			Json info = .Object();
 			res["serverInfo"] = info;
 			info["name"] = .String("beef-lsp");
@@ -170,6 +172,9 @@ namespace BeefLsp {
 			String path = scope .();
 			if (!GetPath(j["uri"].AsString, path)) return;
 
+			ProjectSource source = app.FindProjectSourceItem(path);
+			if (source == null) return;
+
 			// Add
 			String contents = new .();
 			j["text"].AsString.Unescape(contents);
@@ -184,6 +189,9 @@ namespace BeefLsp {
 			// Get path
 			String path = scope .();
 			if (!GetPath(args["textDocument"]["uri"].AsString, path)) return;
+
+			ProjectSource source = app.FindProjectSourceItem(path);
+			if (source == null) return;
 
 			// Get contents
 			StringView contentsRaw;
@@ -247,6 +255,9 @@ namespace BeefLsp {
 			String path = scope .();
 			if (!GetPath(args["textDocument"]["uri"].AsString, path)) return;
 
+			ProjectSource source = app.FindProjectSourceItem(path);
+			if (source == null) return;
+
 			// Remove
 			documents.Remove(path);
 		}
@@ -256,12 +267,14 @@ namespace BeefLsp {
 			String path = scope .();
 			if (!GetPath(args["textDocument"]["uri"].AsString, path)) return Json.Null();
 
+			ProjectSource source = app.FindProjectSourceItem(path);
+			if (source == null) return Json.Null();
+
 			// Get folding range data
 			app.mBfBuildSystem.Lock(0);
 			defer app.mBfBuildSystem.Unlock();
 
 			Document document = documents.Get(path);
-			ProjectSource source = app.FindProjectSourceItem(path);
 			BfParser parser = app.mBfBuildSystem.FindParser(source);
 
 			var resolvePassData = parser.CreateResolvePassData(.None);
@@ -314,6 +327,9 @@ namespace BeefLsp {
 			// Get path
 			String path = scope .();
 			if (!GetPath(args["textDocument"]["uri"].AsString, path)) return Json.Null();
+
+			ProjectSource source = app.FindProjectSourceItem(path);
+			if (source == null) return Json.Null();
 
 			// Get completion data
 			app.mBfBuildSystem.Lock(0);
@@ -414,6 +430,9 @@ namespace BeefLsp {
 			// Get path
 			String path = scope .();
 			if (!GetPath(args["textDocument"]["uri"].AsString, path)) return Json.Null();
+
+			ProjectSource source = app.FindProjectSourceItem(path);
+			if (source == null) return Json.Null();
 
 			// Get navigation data
 			app.mBfBuildSystem.Lock(0);
@@ -562,7 +581,8 @@ namespace BeefLsp {
 		enum CompilerDataType {
 			Completions,
 			Navigation,
-			Hover
+			Hover,
+			GoToDefinition
 		}
 
 		private void GetCompilerData(Document document, CompilerDataType type, int character, String buffer) {
@@ -571,9 +591,10 @@ namespace BeefLsp {
 
 			String name;
 			switch (type) {
-			case .Completions: name = "GetCompilerData - Completions";
-			case .Navigation:  name = "GetCompilerData - Navigation";
-			case .Hover:  name = "GetCompilerData - Hover";
+			case .Completions:    name = "GetCompilerData - Completions";
+			case .Navigation:     name = "GetCompilerData - Navigation";
+			case .Hover:          name = "GetCompilerData - Hover";
+			case .GoToDefinition: name = "GetCompilerData - GoToDefinition";
 			}
 
 			let pass = app.mBfBuildSystem.CreatePassInstance(name);
@@ -581,9 +602,10 @@ namespace BeefLsp {
 
 			ResolveType resolveType;
 			switch (type) {
-			case .Completions: resolveType = .Autocomplete;
-			case .Navigation:  resolveType = .GetNavigationData;
-			case .Hover:  resolveType = .GetResultString;
+			case .Completions:    resolveType = .Autocomplete;
+			case .Navigation:     resolveType = .GetNavigationData;
+			case .Hover:          resolveType = .GetResultString;
+			case .GoToDefinition: resolveType = .GoToDefinition;
 			}
 			
 			parser.SetIsClassifying();
@@ -609,6 +631,9 @@ namespace BeefLsp {
 			// Get path
 			String path = scope .();
 			if (!GetPath(args["textDocument"]["uri"].AsString, path)) return Json.Null();
+
+			ProjectSource source = app.FindProjectSourceItem(path);
+			if (source == null) return Json.Null();
 
 			// Get signature data
 			app.mBfBuildSystem.Lock(0);
@@ -748,6 +773,9 @@ namespace BeefLsp {
 			String path = scope .();
 			if (!GetPath(args["textDocument"]["uri"].AsString, path)) return Json.Null();
 
+			ProjectSource source = app.FindProjectSourceItem(path);
+			if (source == null) return Json.Null();
+
 			// Get hover data
 			app.mBfBuildSystem.Lock(0);
 			defer app.mBfBuildSystem.Unlock();
@@ -797,6 +825,54 @@ namespace BeefLsp {
 			return json;
 		}
 
+		private Result<Json> OnDefinition(Json args) {
+			// Get path
+			String path = scope .();
+			if (!GetPath(args["textDocument"]["uri"].AsString, path)) return Json.Null();
+
+			ProjectSource source = app.FindProjectSourceItem(path);
+			if (source == null) return Json.Null();
+
+			// Get definition data
+			app.mBfBuildSystem.Lock(0);
+			defer app.mBfBuildSystem.Unlock();
+
+			Document document = documents.Get(path);
+
+			int cursor = document.GetCharacter((.) args["position"]["line"].AsNumber, (.) args["position"]["character"].AsNumber);
+
+			String definitionData = GetCompilerData(document, .GoToDefinition, cursor, .. scope .());
+
+			// Parse data
+			StringView file = "";
+			int line = 0;
+			int column = 0;
+
+			for (let data in Lines(definitionData)) {
+				var it = data.Split('\t', .RemoveEmptyEntries);
+
+				StringView type = it.GetNext().Value;
+				if (type != "defLoc") continue;
+
+				file = it.GetNext().Value;
+				line = int.Parse(it.GetNext().Value);
+				column = int.Parse(it.GetNext().Value);
+
+				break;
+			}
+
+			// Create json
+			if (file.IsEmpty) return Json.Null();
+
+			Json json = .Object();
+
+			json["targetUri"] = .String(scope $"file:///{file}");
+			json["targetRange"] = Range(line, column, line, column);
+			json["targetSelectionRange"] = Range(line, column, line, column);
+
+			return json;
+		}
+
 		private Result<Json> OnShutdown() {
 			Console.WriteLine("Shutting down");
 
@@ -831,6 +907,7 @@ namespace BeefLsp {
 			case "textDocument/documentSymbol": HandleRequest(json, OnDocumentSymbol(args));
 			case "textDocument/signatureHelp":  HandleRequest(json, OnSignatureHelp(args));
 			case "textDocument/hover":          HandleRequest(json, OnHover(args));
+			case "textDocument/definition":     HandleRequest(json, OnDefinition(args));
 			}
 		}
 
@@ -856,5 +933,49 @@ namespace BeefLsp {
 			connection.Send(notification);
 			notification.Dispose();
 		}
+
+		/*
+		private void ParseSymbolData(String data, BfResolvePassData passData) {
+			bool typeDef = false;
+
+			for (let line in Lines(data)) {
+				var lineDataItr = line.Split('\t');
+				var dataType = lineDataItr.GetNext().Get();
+
+				switch (dataType) {
+				case "localId":
+					int32 localId = int32.Parse(lineDataItr.GetNext().Get());
+					passData.SetLocalId(localId);
+				case "typeRef":
+					passData.SetSymbolReferenceTypeDef(scope .(lineDataItr.GetNext().Get()));
+					typeDef = true;
+				case "fieldRef":
+					passData.SetSymbolReferenceTypeDef(scope .(lineDataItr.GetNext().Get()));
+					passData.SetSymbolReferenceFieldIdx(int32.Parse(lineDataItr.GetNext().Get()));
+					typeDef = true;
+				case "methodRef", "ctorRef":
+					passData.SetSymbolReferenceTypeDef(scope .(lineDataItr.GetNext().Get()));
+					passData.SetSymbolReferenceMethodIdx(int32.Parse(lineDataItr.GetNext().Get()));
+					typeDef = true;
+				case "invokeMethodRef":
+					if (!typeDef) {
+						passData.SetSymbolReferenceTypeDef(scope .(lineDataItr.GetNext().Get()));
+						passData.SetSymbolReferenceMethodIdx(int32.Parse(lineDataItr.GetNext().Get()));
+						typeDef = true;
+					}
+				case "propertyRef":
+					passData.SetSymbolReferenceTypeDef(scope .(lineDataItr.GetNext().Get()));
+					passData.SetSymbolReferencePropertyIdx(int32.Parse(lineDataItr.GetNext().Get()));
+					typeDef = true;
+				case "typeGenericParam":
+					passData.SetTypeGenericParamIdx(int32.Parse(lineDataItr.GetNext().Get()));
+				case "methodGenericParam":
+					passData.SetMethodGenericParamIdx(int32.Parse(lineDataItr.GetNext().Get()));
+				case "namespaceRef":
+					passData.SetSymbolReferenceNamespace(scope .(lineDataItr.GetNext().Get()));
+				}
+			}
+		}
+		*/
 	}
 }
