@@ -38,12 +38,16 @@ namespace BeefLsp {
 
 			Json completionProvider = .Object();
 			cap["completionProvider"] = completionProvider;
-			completionProvider["triggerCharacters"] = .Array();
-			completionProvider["triggerCharacters"].Add(.String("."));
+			completionProvider["triggerCharacters"] = .Array()..Add(.String("."));
 
 			Json documentSymbolProvider = .Object();
 			cap["documentSymbolProvider"] = documentSymbolProvider;
 			documentSymbolProvider["label"] = .String("Beef Lsp");
+			documentSymbolProvider["triggerCharacters"] = .Array()..Add(.String("("));
+			documentSymbolProvider["retriggerCharacters"] = .Array()..Add(.String(","));
+
+			Json signatureHelpProvider = .Object();
+			cap["signatureHelpProvider"] = signatureHelpProvider;
 
 			Json info = .Object();
 			res["serverInfo"] = info;
@@ -264,7 +268,7 @@ namespace BeefLsp {
 			// Parse data to json
 			Json ranges = .Array();
 
-			for (var line in collapseData.Split('\n', .RemoveEmptyEntries)) {
+			for (var line in Lines(collapseData)) {
 				let original = line;
 
 				// Parse folding range
@@ -313,9 +317,9 @@ namespace BeefLsp {
 			
 			Document document = documents.Get(path);
 
-			int character = document.GetCharacter((.) args["position"]["line"].AsNumber, (.) args["position"]["character"].AsNumber);
+			int cursor = document.GetCharacter((.) args["position"]["line"].AsNumber, (.) args["position"]["character"].AsNumber);
 
-			String completionData = GetCompilerData(document, .Completions, character, .. scope .());
+			String completionData = GetCompilerData(document, .Completions, cursor, .. scope .());
 			
 			// Parse data to json
 			Json items = .Array();
@@ -323,7 +327,7 @@ namespace BeefLsp {
 			int start = -1;
 			int end = -1;
 
-			for (let line in completionData.Split('\n', .RemoveEmptyEntries)) {
+			for (let line in Lines(completionData)) {
 				// Parse completion item
 				var it = line.Split('\t');
 				StringView type = it.GetNext().Value;
@@ -418,7 +422,7 @@ namespace BeefLsp {
 			// Parse data
 			List<Symbol> symbols = scope .();
 
-			for (let line in navigationData.Split('\n', .RemoveEmptyEntries)) {
+			for (let line in Lines(navigationData)) {
 				// Parse symbol
 				var it = line.Split('\t', .RemoveEmptyEntries);
 
@@ -592,6 +596,148 @@ namespace BeefLsp {
 			delete parser;
 			app.mBfBuildSystem.RemoveOldData();
 		}
+		private static int Something(bool a, String b, int omg) => 159;
+
+		private Result<Json> OnSignatureHelp(Json args) {
+			// Get path
+			String path = scope .();
+			if (!GetPath(args["textDocument"]["uri"].AsString, path)) return Json.Null();
+
+			// Get signature data
+			app.mBfBuildSystem.Lock(0);
+			defer app.mBfBuildSystem.Unlock();
+
+			Document document = documents.Get(path);
+
+			int cursor = document.GetCharacter((.) args["position"]["line"].AsNumber, (.) args["position"]["character"].AsNumber);
+
+			String signatureData = GetCompilerData(document, .Completions, cursor, .. scope .());
+
+			// Parse data
+			List<String> signatures = scope .();
+			int activeSignature = -1;
+			List<int> argumentPositions = scope .();
+
+			defer signatures.ClearAndDeleteItems();
+
+			loop: for (let line in Lines(signatureData)) {
+				var it = line.Split('\t', .RemoveEmptyEntries);
+
+				StringView type = it.GetNext().Value;
+				StringView data = it.GetNext().Value;
+
+				if (it.HasMore) {
+					String str = scope:loop .(data);
+					if (str.EndsWith('\x03')) {
+						str.RemoveFromEnd(1);
+						str.Append('\n');
+					}
+
+					for (let more in it) {
+						let x03 = more.EndsWith('\x03');
+
+						str.Append(x03 ? more[...^2] : more);
+						str.Append('\n');
+					}
+
+					data = str;
+				}
+
+				switch (type) {
+				case "invokeInfo":
+					var it2 = data.Split(' ', .RemoveEmptyEntries);
+					activeSignature = int.Parse(it2.GetNext().Value);
+
+					for (let argumentPosition in it2) {
+						argumentPositions.Add(int.Parse(argumentPosition));
+					}
+				case "invoke":
+					signatures.Add(new .(data));
+				}
+			}
+
+			if (signatures.IsEmpty || activeSignature == -1) return Json.Null();
+
+			// Calculate active parameter
+			int activeParameter = 0;
+
+			for (int i = 1; i < argumentPositions.Count; i++) {
+				if (cursor > argumentPositions[i - 1] && cursor <= argumentPositions[i]) {
+					activeParameter = i - 1;
+					break;
+				}
+			}
+
+			// Create json
+			Json json = .Object();
+
+			Json jsonSignatures = .Array();
+			json["signatures"] = jsonSignatures;
+
+			loop: for (let signature in signatures) {
+				Json jsonSignature = .Object();
+				jsonSignatures.Add(jsonSignature);
+
+				StringView label = scope String(signature)..Replace("\x01", "");
+				StringView documentation = "";
+
+				int documentationIndex = label.IndexOf('\x03');
+				if (documentationIndex != -1) {
+					documentation = label.Substring(documentationIndex + 1);
+					label = label[0...documentationIndex - 1];
+
+					// Remove ///
+					String str = scope:loop .();
+
+					for (let line in Lines(documentation)) {
+						str.Append(line[3...]..Trim());
+						if (@line.HasMore) str.Append('\n');
+					}
+
+					documentation = str;
+
+				}
+
+				jsonSignature["label"] = .String(label);
+				if (!documentation.IsEmpty) jsonSignature["documentation"] = .String(documentation);
+
+				Json jsonParameters = .Array();
+				jsonSignature["parameters"] = jsonParameters;
+
+				for (let parameter in signature[signature.IndexOf('(') + 1...signature.LastIndexOf(')') - 1].Split('\x01', .RemoveEmptyEntries)) {
+					Json jsonParameter = .Object();
+					jsonParameters.Add(jsonParameter);
+
+					jsonParameter["label"] = .String(parameter);
+				}
+			}
+
+			json["activeSignature"] = .Number(activeSignature);
+			json["activeParameter"] = .Number(activeParameter);
+
+			return json;
+		}
+
+		private LineEnumerator Lines(StringView string) {
+			return .(string.Split('\n', .RemoveEmptyEntries));
+		}
+
+		struct LineEnumerator : IEnumerator<StringView> {
+			private StringSplitEnumerator enumerator;
+
+			public this(StringSplitEnumerator enumerator) {
+				this.enumerator = enumerator;
+			}
+
+			public bool HasMore => enumerator.HasMore;
+
+			public Result<StringView> GetNext() mut {
+				switch (enumerator.GetNext()) {
+				case .Ok(let val): return val.EndsWith('\r') ? val[...^2] : val;
+				case .Err:         return .Err;
+				}
+			}
+		}
 
 		private Result<Json> OnShutdown() {
 			Console.WriteLine("Shutting down");
@@ -625,6 +771,7 @@ namespace BeefLsp {
 			case "textDocument/foldingRange":   HandleRequest(json, OnFoldingRange(args));
 			case "textDocument/completion":     HandleRequest(json, OnCompletion(args));
 			case "textDocument/documentSymbol": HandleRequest(json, OnDocumentSymbol(args));
+			case "textDocument/signatureHelp":  HandleRequest(json, OnSignatureHelp(args));
 			}
 		}
 
