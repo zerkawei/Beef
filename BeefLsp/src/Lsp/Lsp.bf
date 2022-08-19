@@ -79,7 +79,8 @@ namespace BeefLsp {
 				List<Json> diagnostics = files.GetValueOrDefault(error.mFilePath);
 				if (diagnostics == null) diagnostics = files[new .(error.mFilePath)] = new .();
 
-				diagnostics.Add(GetDiagnostic(error));
+				Json? json = GetDiagnostic(error);
+				if (json.HasValue) diagnostics.Add(json.Value);
 			}
 
 			// Send diagnostics
@@ -117,10 +118,16 @@ namespace BeefLsp {
 			DeleteDictionaryAndKeysAndValues!(files);
 		}
 
-		private Json GetDiagnostic(BfPassInstance.BfError error) {
+		private Json? GetDiagnostic(BfPassInstance.BfError error) {
+			Document document = documents.Get(error.mFilePath);
+			if (document == null) return null;
+
 			Json json = .Object();
 
-			json["range"] = Range(error.mLine, error.mColumn, error.mLine, error.mColumn); // TODO: Find the correct range
+			LineInfo startLineInfo = document.GetLineInfo(error.mSrcStart);
+			LineInfo endLineInfo = document.GetLineInfo(error.mSrcEnd);
+
+			json["range"] = Range(startLineInfo.line, error.mSrcStart - startLineInfo.start, endLineInfo.line, error.mSrcEnd - endLineInfo.start);
 			json["severity"] = .Number(error.mIsWarning ? 2 : 1);
 			json["code"] = .Number(error.mCode);
 			json["message"] = .String(error.mError);
@@ -276,9 +283,9 @@ namespace BeefLsp {
 				Json json = .Object();
 				ranges.Add(json);
 
-				json["startLine"] = .Number(startLine.line - 1);
+				json["startLine"] = .Number(startLine.line);
 				//json["startCharacter"] = .Number(startLine.start - start);
-				json["endLine"] = .Number(endLine.line - 2);
+				json["endLine"] = .Number(endLine.line - 1);
 				//json["endCharacter"] = .Number(endLine.start - end);
 
 				switch (kind) {

@@ -22,7 +22,7 @@ namespace BeefLsp {
 
 		public LineInfo GetLineInfo(int character) {
 			int currentCharacter = 0;
-			int line = 1;
+			int line = 0;
 			int lineStart = 0;
 
 			for (let char in contents.RawChars) {
@@ -70,7 +70,7 @@ namespace BeefLsp {
 		}
 
 		public Document Get(StringView path) {
-			return documents[path];
+			return documents.GetValueOrDefault(path);
 		}
 	}
 }
