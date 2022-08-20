@@ -49,9 +49,10 @@ namespace BeefLsp {
 			signatureHelpProvider["triggerCharacters"] = .Array()..Add(.String("("));
 			signatureHelpProvider["retriggerCharacters"] = .Array()..Add(.String(","));
 
-			cap["hoverProvider"] = .Object();
-
-			cap["definitionProvider"] = .Object();
+			cap["hoverProvider"] = .Bool(true);
+			cap["definitionProvider"] = .Bool(true);
+			cap["referencesProvider"] = .Bool(true);
+			cap["workspaceSymbolProvider"] = .Bool(true);
 
 			Json info = .Object();
 			res["serverInfo"] = info;
@@ -244,7 +245,6 @@ namespace BeefLsp {
 			buffer.Set(uri[8...]);
 			buffer.Replace("%3A", ":");
 			IDEUtils.FixFilePath(buffer);
-			if (buffer[1] == ':' && buffer[2] == '\\' && buffer[3] != '\\') buffer.Insert(2, '\\');
 
 			return true;
 
@@ -445,9 +445,9 @@ namespace BeefLsp {
 			// Parse data
 			List<Symbol> symbols = scope .();
 
-			for (let line in Lines(navigationData)) {
+			for (let lineStr in Lines(navigationData)) {
 				// Parse symbol
-				var it = line.Split('\t', .RemoveEmptyEntries);
+				var it = lineStr.Split('\t');
 
 				StringView name = it.GetNext().Value;
 				StringView type = it.GetNext().Value;
@@ -459,13 +459,14 @@ namespace BeefLsp {
 				switch (type) {
 				case "method":    kind = 6;
 				case "extmethod": kind = 6;
+				case "field":     kind = 8;
 				case "property":  kind = 7;
 				case "class":     kind = 5;
 				case "enum":      kind = 10;
 				case "struct":    kind = 23;
 				case "typealias": kind = 26; // TODO: Currently set to TypeParameter
 				default:
-					Console.WriteLine("Unknown navigation data: {}", line);
+					Console.WriteLine("Unknown navigation data: {}", lineStr);
 					continue;
 				}
 
@@ -582,7 +583,8 @@ namespace BeefLsp {
 			Completions,
 			Navigation,
 			Hover,
-			GoToDefinition
+			GoToDefinition,
+			SymbolInfo
 		}
 
 		private void GetCompilerData(Document document, CompilerDataType type, int character, String buffer) {
@@ -595,6 +597,7 @@ namespace BeefLsp {
 			case .Navigation:     name = "GetCompilerData - Navigation";
 			case .Hover:          name = "GetCompilerData - Hover";
 			case .GoToDefinition: name = "GetCompilerData - GoToDefinition";
+			case .SymbolInfo:     name = "GetCompilerData - SymbolInfo";
 			}
 
 			let pass = app.mBfBuildSystem.CreatePassInstance(name);
@@ -606,6 +609,7 @@ namespace BeefLsp {
 			case .Navigation:     resolveType = .GetNavigationData;
 			case .Hover:          resolveType = .GetResultString;
 			case .GoToDefinition: resolveType = .GoToDefinition;
+			case .SymbolInfo:     resolveType = .GetSymbolInfo;
 			}
 			
 			parser.SetIsClassifying();
@@ -618,7 +622,10 @@ namespace BeefLsp {
 			parser.Parse(pass, false);
 			parser.Reduce(pass);
 			parser.BuildDefs(pass, passData, false);
+
+			BfParser.[Friend]BfParser_CreateClassifier(parser.mNativeBfParser, pass.mNativeBfPassInstance, passData.mNativeResolvePassData, null);
 			app.compiler.ClassifySource(pass, passData);
+			parser.FinishClassifier(passData);
 
 			app.compiler.GetAutocompleteInfo(buffer);
 
@@ -866,75 +873,72 @@ namespace BeefLsp {
 
 			Json json = .Object();
 
-			json["targetUri"] = .String(scope $"file:///{file}");
-			json["targetRange"] = Range(line, column, line, column);
-			json["targetSelectionRange"] = Range(line, column, line, column);
+			json["uri"] = .String(scope $"file:///{file}");
+			json["range"] = Range(line, column, line, column);
 
 			return json;
 		}
 
-		private Result<Json> OnShutdown() {
-			Console.WriteLine("Shutting down");
+		private Result<Json> OnReferences(Json args) {
+			// Get path
+			String path = scope .();
+			if (!GetPath(args["textDocument"]["uri"].AsString, path)) return Json.Null();
 
-			app.Stop();
-			app.Shutdown();
+			ProjectSource source = app.FindProjectSourceItem(path);
+			if (source == null) return Json.Null();
 
-			return Json.Null();
-		}
+			// Get symbol data
+			app.mBfBuildSystem.Lock(0);
+			defer app.mBfBuildSystem.Unlock();
 
-		private void OnExit() {
-			connection.Stop();
-		}
+			Document document = documents.Get(path);
 
-		public void OnMessage(Json json) {
-			StringView method = json["method"].AsString;
-			Console.WriteLine("Received: {}", method);
+			int cursor = document.GetCharacter((.) args["position"]["line"].AsNumber, (.) args["position"]["character"].AsNumber);
 
-			Json args = json["params"];
+			String symbolData = GetCompilerData(document, .SymbolInfo, cursor, .. scope .());
 
-			switch (method) {
-			case "initialize":                  HandleRequest(json, OnInitialize(args));
-			case "initialized":                 OnInitialized();
-			case "shutdown":                    HandleRequest(json, OnShutdown());
-			case "exit":                        OnExit();
+			// Get references data
+			BfParser parser = scope .(null);
 
-			case "textDocument/didOpen":        OnDidOpen(args);
-			case "textDocument/didChange":      OnDidChange(args);
-			case "textDocument/didClose":       OnDidClose(args);
+			BfPassInstance pass = app.mBfBuildSystem.CreatePassInstance("GetSymbolReferences");
+			defer delete pass;
 
-			case "textDocument/foldingRange":   HandleRequest(json, OnFoldingRange(args));
-			case "textDocument/completion":     HandleRequest(json, OnCompletion(args));
-			case "textDocument/documentSymbol": HandleRequest(json, OnDocumentSymbol(args));
-			case "textDocument/signatureHelp":  HandleRequest(json, OnSignatureHelp(args));
-			case "textDocument/hover":          HandleRequest(json, OnHover(args));
-			case "textDocument/definition":     HandleRequest(json, OnDefinition(args));
+			BfResolvePassData passData = parser.CreateResolvePassData(.ShowFileSymbolReferences);
+			defer delete passData;
+
+			ParseSymbolData(symbolData, passData);
+
+			String referencesData = app.compiler.GetSymbolReferences(pass, passData, .. scope .());
+
+			// Parse data
+			if (referencesData.IsEmpty) return Json.Null();
+
+			Json references = .Array();
+
+			for (let line in Lines(referencesData)) {
+				var it = line.Split('\t', .RemoveEmptyEntries);
+
+				StringView file = it.GetNext().Value;
+				StringView data = it.GetNext().Value;
+
+				for (let posStr in data.Split(' ', .RemoveEmptyEntries)) {
+					int startLine = int.Parse(posStr);
+					int startColumn = int.Parse(@posStr.GetNext().Value);
+					int endLine = int.Parse(@posStr.GetNext().Value);
+					int endColumn = int.Parse(@posStr.GetNext().Value);
+
+					// Create json
+					Json json = .Object();
+					references.Add(json);
+
+					json["uri"] = .String(scope $"file:///{file}");
+					json["range"] = Range(startLine, startColumn, endLine, endColumn);
+				}
 			}
+
+			return references;
 		}
 
-		private void HandleRequest(Json json, Result<Json> result) {
-			Json response = .Object();
-
-			response["jsonrpc"] = .String("2.0");
-			response["id"] = json["id"];
-
-			response["result"] = result;
-
-			connection.Send(response);
-			response.Dispose();
-		}
-
-		private void Send(StringView method, Json json) {
-			Json notification = .Object();
-
-			notification["jsonrpc"] = .String("2.0");
-			notification["method"] = .String(method);
-			notification["params"] = json;
-
-			connection.Send(notification);
-			notification.Dispose();
-		}
-
-		/*
 		private void ParseSymbolData(String data, BfResolvePassData passData) {
 			bool typeDef = false;
 
@@ -976,6 +980,153 @@ namespace BeefLsp {
 				}
 			}
 		}
-		*/
+
+		private Result<Json> OnWorkspaceSymbol(Json args) {
+			// Get symbol data
+			String symbolData = app.compiler.GetTypeDefMatches(args["query"].AsString, .. scope .());
+
+			// Parse data and create json
+			Json symbols = .Array();
+
+			for (let line in Lines(symbolData)) {
+				var it = line.Split('\t', .RemoveEmptyEntries);
+
+				StringView name = it.GetNext().Value;
+
+				char8 type = name[0];
+				name.Adjust(1);
+
+				if (type == '>') {
+					type = name[0];
+					name.Adjust(1);
+
+					while (type.IsDigit) {
+						type = name[0];
+						name.Adjust(1);
+					}
+
+					type = name[0];
+					name.Adjust(1);
+				}
+
+				if (type == ':') {
+					type = name[0];
+					name.Adjust(1);
+				}
+
+				int kind = -1;
+
+				switch (type) {
+				case 'v':      kind = 23;
+				case 'c':      kind = 5;
+				case 'i':      kind = 11;
+
+				case 'F':      kind = 8;
+				case 'P':      kind = 7;
+				case 'M', 'o': kind = 6;
+				}
+
+				if (kind == -1) continue;
+
+				for (int i < name.Length) {
+					if (name[i] == '+') name[i] = '.';
+				}
+
+				StringView containerName = "";
+
+				int parenIndex = name.IndexOf('(');
+				int lastDotIndex;
+				if (parenIndex == -1) lastDotIndex = name.LastIndexOf('.');
+				else lastDotIndex = name[0...parenIndex - 1].LastIndexOf('.');
+
+				if (lastDotIndex != -1) {
+					containerName = name[0...lastDotIndex - 1];
+					name = name.Substring(lastDotIndex + 1);
+				}
+
+				StringView file = it.GetNext().Value;
+				int line = int.Parse(it.GetNext().Value);
+				int column = int.Parse(it.GetNext().Value);
+
+				// Create json
+				Json symbol = .Object();
+				symbols.Add(symbol);
+
+				symbol["name"] = .String(name);
+				symbol["kind"] = .Number(kind);
+				if (!containerName.IsEmpty) symbol["containerName"] = .String(containerName);
+
+				Json location = .Object();
+				symbol["location"] = location;
+				location["uri"] = .String(scope $"file:///{file}");
+				location["range"] = Range(line, column, line, column);
+			}
+
+			return symbols;
+		}
+
+		private Result<Json> OnShutdown() {
+			Console.WriteLine("Shutting down");
+
+			app.Stop();
+			app.Shutdown();
+
+			return Json.Null();
+		}
+
+		private void OnExit() {
+			connection.Stop();
+		}
+
+		public void OnMessage(Json json) {
+			StringView method = json["method"].AsString;
+			Console.WriteLine("Received: {}", method);
+
+			Json args = json["params"];
+
+			switch (method) {
+			case "initialize":                  HandleRequest(json, OnInitialize(args));
+			case "initialized":                 OnInitialized();
+			case "shutdown":                    HandleRequest(json, OnShutdown());
+			case "exit":                        OnExit();
+
+			case "textDocument/didOpen":        OnDidOpen(args);
+			case "textDocument/didChange":      OnDidChange(args);
+			case "textDocument/didClose":       OnDidClose(args);
+
+			case "textDocument/foldingRange":   HandleRequest(json, OnFoldingRange(args));
+			case "textDocument/completion":     HandleRequest(json, OnCompletion(args));
+			case "textDocument/documentSymbol": HandleRequest(json, OnDocumentSymbol(args));
+			case "textDocument/signatureHelp":  HandleRequest(json, OnSignatureHelp(args));
+			case "textDocument/hover":          HandleRequest(json, OnHover(args));
+			case "textDocument/definition":     HandleRequest(json, OnDefinition(args));
+			case "textDocument/references":     HandleRequest(json, OnReferences(args));
+
+			case "workspace/symbol":            HandleRequest(json, OnWorkspaceSymbol(args));
+			}
+		}
+
+		private void HandleRequest(Json json, Result<Json> result) {
+			Json response = .Object();
+
+			response["jsonrpc"] = .String("2.0");
+			response["id"] = json["id"];
+
+			response["result"] = result;
+
+			connection.Send(response);
+			response.Dispose();
+		}
+
+		private void Send(StringView method, Json json) {
+			Json notification = .Object();
+
+			notification["jsonrpc"] = .String("2.0");
+			notification["method"] = .String(method);
+			notification["params"] = json;
+
+			connection.Send(notification);
+			notification.Dispose();
+		}
 	}
 }

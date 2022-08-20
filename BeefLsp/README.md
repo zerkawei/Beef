@@ -12,3 +12,4 @@ Status: WIP
  - Signature help
  - Hover
  - Go to definition
+ - Find references

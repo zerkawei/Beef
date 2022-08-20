@@ -4077,6 +4077,27 @@ void BfCompiler::ProcessAutocompleteTempType()
 				}
 			}
 
+			for (auto fieldDef : tempTypeDef->mFields)
+			{
+				auto fieldDeclaration = BfNodeDynCast<BfFieldDeclaration>(fieldDef->mFieldDeclaration);
+				if ((fieldDeclaration == NULL) || (fieldDeclaration->mNameNode == NULL) || (BfNodeIsA<BfPropertyDeclaration>(fieldDef->mFieldDeclaration)))
+					continue;
+
+				String fieldText = fieldDef->mName;
+				if (typeName != "@")
+					fieldText = typeName + "." + fieldText;
+
+				if (!autoCompleteResultString.empty())
+					autoCompleteResultString += "\n";
+
+				BfAstNode* refNode = fieldDeclaration->mNameNode;
+				module->UpdateSrcPos(refNode, (BfSrcPosFlags)(BfSrcPosFlag_NoSetDebugLoc | BfSrcPosFlag_Force));
+
+				fieldText += StrFormat("\tfield\t%d\t%d", module->mCurFilePosition.mCurLine, module->mCurFilePosition.mCurColumn);
+
+				autoCompleteResultString += fieldText;
+			}
+
 			for (auto propDef : tempTypeDef->mProperties)
 			{
 				auto propDeclaration = BfNodeDynCast<BfPropertyDeclaration>(propDef->mFieldDeclaration);
@@ -9021,6 +9042,9 @@ String BfCompiler::GetTypeDefMatches(const StringImpl& searchStr)
 		{
 			for (auto fieldDef : typeDef->mFields)
 			{
+				if (BfNodeIsA<BfPropertyDeclaration>(fieldDef->mFieldDeclaration))
+					continue;
+
 				matchHelper.ClearResults();
 
 				bool hasMatch = false;
@@ -9211,7 +9235,10 @@ String BfCompiler::GetTypeDefMatches(const StringImpl& searchStr)
 			result += "c";
 		else
 			result += "v";
-		result += typeName + "\n";
+		result += typeName + "\t";
+
+		matchHelper.AddLocation(typeDef->GetRefNode());
+		result += "\n";
 	}
 
 	return result;
