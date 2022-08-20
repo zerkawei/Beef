@@ -45,6 +45,10 @@ namespace BeefLsp {
 			WorkspaceLoaded();
 			compiler.[Friend]HandleOptions(null, 0);
 
+			for (let project in mWorkspace.mProjects) {
+				IDEUtils.FixFilePath(project.mProjectDir);
+			}
+
 			Console.WriteLine("Loaded workspace at {}", path);
 		}
 

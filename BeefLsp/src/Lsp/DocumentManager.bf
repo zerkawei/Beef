@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Collections;
 
 namespace BeefLsp {
@@ -9,6 +10,7 @@ namespace BeefLsp {
 		public int version;
 		public String contents ~ delete _;
 
+		[AllowAppend]
 		public this(StringView path, int version, String contents) {
 			this.path = new .(path);
 			this.version = version;
@@ -56,7 +58,7 @@ namespace BeefLsp {
 	}
 
 	class DocumentManager {
-		private Dictionary<StringView, Document> documents = new .() ~ DeleteDictionaryAndValues!(_);
+		private Dictionary<String, Document> documents = new .() ~ DeleteDictionaryAndValues!(_);
 
 		public Document Add(StringView path, int version, String contents) {
 			Document document = new .(path, version, contents);
@@ -66,11 +68,17 @@ namespace BeefLsp {
 		}
 
 		public void Remove(StringView path) {
-			delete documents.GetAndRemove(path).Value.value;
+			if (documents.GetAndRemoveAlt(path) case .Ok(let val)) {
+				delete val.value;
+			}
 		}
 
 		public Document Get(StringView path) {
-			return documents.GetValueOrDefault(path);
+			String key;
+			Document document;
+
+			if (!documents.TryGetAlt(path, out key, out document)) return null;
+			return document;
 		}
 	}
 }
