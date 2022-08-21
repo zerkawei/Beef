@@ -1,23 +1,31 @@
 import * as vscode from "vscode";
 import * as net from "net";
-import { LanguageClient, LanguageClientOptions, StreamInfo } from "vscode-languageclient/node";
+import { LanguageClient, LanguageClientOptions, ServerOptions, StreamInfo } from "vscode-languageclient/node";
 
 let barItem: vscode.StatusBarItem;
 let client: LanguageClient;
 
+const tcp = false;
+
 export function activate(context: vscode.ExtensionContext) {
-	let serverOptions = () => {
-		let socket = net.createConnection({
-			port: 5556
-		});
-
-		let result: StreamInfo = {
-			writer: socket,
-			reader: socket
-		};
-
-		return Promise.resolve(result);
+	let serverOptions: ServerOptions = {
+		command: "BeefLsp"
 	};
+
+	if (tcp) {
+		serverOptions = () => {
+			let socket = net.createConnection({
+				port: 5556
+			});
+	
+			let result: StreamInfo = {
+				writer: socket,
+				reader: socket
+			};
+	
+			return Promise.resolve(result);
+		};
+	}
 
 	let clientOptions: LanguageClientOptions = {
 		documentSelector: [{ scheme: "file", language: "bf" }]
@@ -36,7 +44,6 @@ export function activate(context: vscode.ExtensionContext) {
 	barItem.tooltip = "Status: Starting";
 	barItem.show();
 	
-	console.log("Trying to connect on localhost:5556");
 	client.start();
 
 	client.onReady().then(onReady);
