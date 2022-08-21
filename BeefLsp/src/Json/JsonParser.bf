@@ -177,7 +177,7 @@ namespace BeefLsp {
 				}
 			}
 
-			Console.WriteLine("Invalid json");
+			Log.Error("Invalid json");
 		}
 	}
 }

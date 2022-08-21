@@ -32,7 +32,7 @@ namespace BeefLsp {
 
 		public void LoadWorkspace(StringView path) {
 			if (mWorkspace.mDir != null) {
-				Console.WriteLine("Tried to load a workspace while one is already loaded");
+				Log.Error("Tried to load a workspace while one is already loaded");
 				return;
 			}
 
@@ -49,7 +49,7 @@ namespace BeefLsp {
 				IDEUtils.FixFilePath(project.mProjectDir);
 			}
 
-			Console.WriteLine("Loaded workspace at {}", path);
+			Log.Info("Loaded workspace at {}", path);
 		}
 
 		public bool InitialParse(BfPassInstance pass) {

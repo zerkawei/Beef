@@ -7,16 +7,26 @@ using IDE.ui;
 using IDE.Compiler;
 
 namespace BeefLsp {
-	class Lsp : ILspHandler {
-		private Connection connection = new .(this) ~ delete _;
+	class BeefLspServer : LspServer {
 		private LspApp app = new .() ~ delete _;
 
 		private DocumentManager documents = new .() ~ delete _;
 		private List<String> sentDiagnosticsUris = new .() ~ DeleteContainerAndItems!(_);
 
-		public void Start() {
+		public void Start(String[] args) {
 			app.Init();
-			connection.Start();
+
+			int port = -1;
+
+			for (let arg in args) {
+				if (arg == "--logFile") Log.SetupFile();
+				else if (arg.StartsWith("--port=")) {
+					if (int.Parse(arg[7...]) case .Ok(let val)) port = val;
+				}
+			}
+
+			if (port == -1) StartStdio();
+			else StartTcp(port);
 		}
 
 		private Result<Json> OnInitialize(Json args) {
@@ -238,12 +248,13 @@ namespace BeefLsp {
 
 		private bool GetPath(StringView uri, String buffer) {
 			if (!uri.StartsWith("file:///")) {
-				Console.WriteLine("Invalid URI, only file:/// URIs are supported: %s", uri);
+				Log.Warning("Invalid URI, only file:/// URIs are supported: %s", uri);
 				return false;
 			}
 
 			buffer.Set(uri[8...]);
 			buffer.Replace("%3A", ":");
+			buffer.Replace("%20", " ");
 			IDEUtils.FixFilePath(buffer);
 
 			return true;
@@ -297,7 +308,7 @@ namespace BeefLsp {
 				int end = int.Parse(it.GetNext().Value);
 
 				if (it.HasMore) {
-					Console.WriteLine("Unknown folding range data '{}'", original);
+					Log.Warning("Unknown folding range data '{}'", original);
 					continue;
 				}
 
@@ -380,14 +391,14 @@ namespace BeefLsp {
 						var it2 = it.GetNext().Value.Split(' ');
 						start = int.Parse(it2.GetNext().Value);
 						end = int.Parse(it2.GetNext().Value);
-					default: Console.WriteLine("Unknown completion type: {}", line);
+					default: Log.Warning("Unknown completion type: {}", line);
 					}
 
 					continue;
 				}
 
 				if (start == -1) {
-					Console.WriteLine("Tried to create completion item before 'insertRange' was detected");
+					Log.Warning("Tried to create completion item before 'insertRange' was detected");
 					continue;
 				}
 
@@ -466,7 +477,7 @@ namespace BeefLsp {
 				case "struct":    kind = 23;
 				case "typealias": kind = 26; // TODO: Currently set to TypeParameter
 				default:
-					Console.WriteLine("Unknown navigation data: {}", lineStr);
+					Log.Warning("Unknown navigation data: {}", lineStr);
 					continue;
 				}
 
@@ -1066,21 +1077,19 @@ namespace BeefLsp {
 		}
 
 		private Result<Json> OnShutdown() {
-			Console.WriteLine("Shutting down");
+			Log.Info("Shutting down");
 
 			app.Stop();
 			app.Shutdown();
 
+			Stop();
+
 			return Json.Null();
 		}
 
-		private void OnExit() {
-			connection.Stop();
-		}
-
-		public void OnMessage(Json json) {
+		protected override void OnMessage(Json json) {
 			StringView method = json["method"].AsString;
-			Console.WriteLine("Received: {}", method);
+			Log.Debug("Received: {}", method);
 
 			Json args = json["params"];
 
@@ -1088,7 +1097,6 @@ namespace BeefLsp {
 			case "initialize":                  HandleRequest(json, OnInitialize(args));
 			case "initialized":                 OnInitialized();
 			case "shutdown":                    HandleRequest(json, OnShutdown());
-			case "exit":                        OnExit();
 
 			case "textDocument/didOpen":        OnDidOpen(args);
 			case "textDocument/didChange":      OnDidChange(args);
@@ -1114,7 +1122,7 @@ namespace BeefLsp {
 
 			response["result"] = result;
 
-			connection.Send(response);
+			Send(response);
 			response.Dispose();
 		}
 
@@ -1125,7 +1133,7 @@ namespace BeefLsp {
 			notification["method"] = .String(method);
 			notification["params"] = json;
 
-			connection.Send(notification);
+			Send(notification);
 			notification.Dispose();
 		}
 	}
