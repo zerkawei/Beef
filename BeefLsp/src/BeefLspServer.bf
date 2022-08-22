@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Collections;
 using System.Diagnostics;
 
@@ -114,7 +115,7 @@ namespace BeefLsp {
 			for (let file in files) {
 				Json json = .Object();
 
-				String uri = new $"file:///{file.key}";
+				String uri = GetFileUri(file.key, .. new .());
 				json["uri"] = .String(uri);
 
 				Json diagnostics = .Array();
@@ -252,13 +253,33 @@ namespace BeefLsp {
 				return false;
 			}
 
+#if !BF_PLATFORM_WINDOWS
+			buffer.Set(uri[7...]);
+#else
 			buffer.Set(uri[8...]);
+#endif
 			buffer.Replace("%3A", ":");
 			buffer.Replace("%20", " ");
 			IDEUtils.FixFilePath(buffer);
 
 			return true;
 
+		}
+
+		private bool GetFileUri(StringView filePath, String buffer)
+		{
+			if (!Path.IsPathRooted(filePath)) {
+				Log.Warning("Invalid path, only rooted paths are supported: %s", filePath);
+				return false;
+			}
+
+#if !BF_PLATFORM_WINDOWS
+			buffer.AppendF($"file://{filePath}");
+#else
+			buffer.AppendF($"file:///{filePath}");
+#endif
+
+			return true;
 		}
 
 		private void OnDidClose(Json args) {
@@ -884,7 +905,7 @@ namespace BeefLsp {
 
 			Json json = .Object();
 
-			json["uri"] = .String(scope $"file:///{file}");
+			json["uri"] = .String(GetFileUri(file, .. scope .()));
 			json["range"] = Range(line, column, line, column);
 
 			return json;
@@ -942,7 +963,7 @@ namespace BeefLsp {
 					Json json = .Object();
 					references.Add(json);
 
-					json["uri"] = .String(scope $"file:///{file}");
+					json["uri"] = .String(GetFileUri(file, .. scope .()));
 					json["range"] = Range(startLine, startColumn, endLine, endColumn);
 				}
 			}
@@ -1069,7 +1090,7 @@ namespace BeefLsp {
 
 				Json location = .Object();
 				symbol["location"] = location;
-				location["uri"] = .String(scope $"file:///{file}");
+				location["uri"] = .String(GetFileUri(file, .. scope .()));
 				location["range"] = Range(line, column, line, column);
 			}
 
