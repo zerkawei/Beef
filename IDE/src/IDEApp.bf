@@ -9085,8 +9085,7 @@ namespace IDE
 			var fullPath = scope String();
 			projectSource.GetFullImportPath(fullPath);
             String data = scope String();
-            LoadTextFile(fullPath, data);
-            if (data == null)
+            if (LoadTextFile(fullPath, data) case .Err)
             {
                 OutputErrorLine("FAILED TO LOAD FILE: {0}", fullPath);
                 return true;
