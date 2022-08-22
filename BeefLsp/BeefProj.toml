@@ -20,6 +20,22 @@ OtherLinkFlags = "$(LinkFlags) Comdlg32.lib kernel32.lib user32.lib advapi32.lib
 CLibType = "Dynamic"
 DebugCommandArguments = "--port=5556"
 
+[Configs.Debug.Linux64]
+TargetDirectory = "$(WorkspaceDir)/../IDE/dist"
+TargetName = "$(ProjectName)_d"
+OtherLinkFlags = "$(LinkFlags) libIDEHelper_d.so libBeefySysLib_d.so $(Var IDEHelper_libs_d)"
+PreBuildCmds = ["ReadFile(\"$(WorkspaceDir)/../IDE/dist/IDEHelper_libs_d.txt\", \"IDEHelper_libs_d\")"]
+CLibType = "Dynamic"
+BeefLibType = "DynamicDebug"
+DebugCommandArguments = "--port=5556"
+
+[Configs.Release.Linux64]
+TargetDirectory = "$(WorkspaceDir)/../IDE/dist"
+OtherLinkFlags = "$(LinkFlags) libIDEHelper.so libBeefySysLib.so $(Var IDEHelper_libs)"
+PreBuildCmds = ["ReadFile(\"$(WorkspaceDir)/../IDE/dist/IDEHelper_libs.txt\", \"IDEHelper_libs\")"]
+CLibType = "Dynamic"
+DebugCommandArguments = "--port=5556"
+
 [[ProjectFolder.Items]]
 Type = "Folder"
 Path = "../IDE/src"
