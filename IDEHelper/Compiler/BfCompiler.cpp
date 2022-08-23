@@ -9063,7 +9063,7 @@ String BfCompiler::GetTypeDefMatches(const StringImpl& searchStr, bool includeLo
 			{
 				if (BfNodeIsA<BfPropertyDeclaration>(fieldDef->mFieldDeclaration))
 					continue;
-
+				
 				matchHelper.ClearResults();
 
 				bool hasMatch = false;
@@ -9254,10 +9254,18 @@ String BfCompiler::GetTypeDefMatches(const StringImpl& searchStr, bool includeLo
 			result += "c";
 		else
 			result += "v";
-		result += typeName + "\t";
 
-		matchHelper.AddLocation(typeDef->GetRefNode());
-		result += "\n";
+		if (includeLocation)
+		{
+			result += typeName + "\t";
+
+			matchHelper.AddLocation(typeDef->GetRefNode());
+			result += "\n";
+		}
+		else
+		{
+			result += typeName + "\n";
+		}
 	}
 
 	return result;
