@@ -46,7 +46,14 @@ void BfResolvePassData::RecordReplaceNode(BfParserData* parser, int srcStart, in
 	{
 		*stringPtr += " ";
 	}
-	*stringPtr += StrFormat("%d %d", srcStart, srcLen);
+
+	int startLine, startChar;
+	parser->GetLineCharAtIdx(srcStart, startLine, startChar);
+
+	int endLine, endChar;
+	parser->GetLineCharAtIdx(srcStart + srcLen, endLine, endChar);
+
+	*stringPtr += StrFormat("%d %d %d %d", startLine, startChar, endLine, endChar);
 }
 
 void BfResolvePassData::RecordReplaceNode(BfAstNode* node)
