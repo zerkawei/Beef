@@ -40,7 +40,7 @@ namespace BeefLsp {
 			return .(line, lineStart);
 		}
 
-		public int GetCharacter(int line, int lineCharacter) {
+		public int GetPosition(int line, int lineCharacter) {
 			int currentLine = 0;
 
 			for (let char in contents.RawChars) {
@@ -54,6 +54,10 @@ namespace BeefLsp {
 			}
 
 			return -1;
+		}
+
+		public int GetPosition(Json json) {
+			return GetPosition((.) json["position"]["line"].AsNumber, (.) json["position"]["character"].AsNumber);
 		}
 	}
 

@@ -1,11 +1,12 @@
 import * as vscode from "vscode";
 import * as net from "net";
 import { LanguageClient, LanguageClientOptions, ServerOptions, StreamInfo } from "vscode-languageclient/node";
+import { WorkspaceEditorProvider } from "./workspaceEditor";
 
 let barItem: vscode.StatusBarItem;
 let client: LanguageClient;
 
-const tcp = false;
+const tcp = true;
 
 export function activate(context: vscode.ExtensionContext) {
 	let serverOptions: ServerOptions = {
@@ -45,6 +46,8 @@ export function activate(context: vscode.ExtensionContext) {
 	barItem.show();
 	
 	client.start();
+
+	context.subscriptions.push(WorkspaceEditorProvider.register(context));
 
 	client.onReady().then(onReady);
 }

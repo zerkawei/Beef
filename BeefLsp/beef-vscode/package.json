@@ -11,7 +11,8 @@
 		"Programming Languages"
 	],
 	"activationEvents": [
-		"onLanguage:bf"
+		"onLanguage:bf",
+		"onCustomEditor:beef.workspace"
 	],
 	"main": "./out/extension.js",
 	"contributes": {
@@ -25,7 +26,16 @@
             "language": "bf",
             "scopeName": "source.bf",
             "path": "./syntaxes/beef.tmLanguage"
-        }]
+        }],
+		"customEditors": [
+			{
+				"viewType": "beef.workspace",
+				"displayName": "Beef Workspace",
+				"selector": [{
+					"filenamePattern": "BeefSpace.toml"
+				}]
+			}
+		]
 	},
 	"scripts": {
 		"vscode:prepublish": "npm run compile",
@@ -33,7 +43,9 @@
 		"watch": "tsc -watch -p ./"
 	},
 	"dependencies": {
-		"vscode-languageclient": "^7.0.0"
+		"vscode-languageclient": "^7.0.0",
+		"toml": "^3.0.0",
+		"@vscode/webview-ui-toolkit": "^1.0.1"
 	},
 	"devDependencies": {
 		"@types/vscode": "^1.70.0",

@@ -30,7 +30,7 @@ namespace BeefLsp {
 			else StartTcp(port);
 		}
 
-		private Result<Json> OnInitialize(Json args) {
+		private Result<Json, Error> OnInitialize(Json args) {
 			StringView workspacePath = args["rootPath"].AsString; // TODO: Also check rootUri which should have higher priority
 			app.LoadWorkspace(workspacePath);
 
@@ -64,6 +64,7 @@ namespace BeefLsp {
 			cap["definitionProvider"] = .Bool(true);
 			cap["referencesProvider"] = .Bool(true);
 			cap["workspaceSymbolProvider"] = .Bool(true);
+			cap["renameProvider"] = .Bool(true);
 
 			Json info = .Object();
 			res["serverInfo"] = info;
@@ -113,9 +114,11 @@ namespace BeefLsp {
 			List<String> uris = scope .();
 
 			for (let file in files) {
+				String uri = Utils.GetUri!(file.key).GetValueOrLog!("");
+				if (uri.IsEmpty) continue;
+
 				Json json = .Object();
 
-				String uri = GetFileUri(file.key, .. new .());
 				json["uri"] = .String(uri);
 
 				Json diagnostics = .Array();
@@ -123,7 +126,7 @@ namespace BeefLsp {
 				file.value.CopyTo(diagnostics.AsArray);
 
 				Send("textDocument/publishDiagnostics", json);
-				uris.Add(uri);
+				uris.Add(new .(uri));
 			}
 
 			// Clear diagnostics for URIs that were sent last time but not this time
@@ -181,8 +184,8 @@ namespace BeefLsp {
 			Json j = args["textDocument"];
 
 			// Get path
-			String path = scope .();
-			if (!GetPath(j["uri"].AsString, path)) return;
+			String path = Utils.GetPathFromJson!(args).GetValueOrLog!("");
+			if (path.IsEmpty) return;
 
 			ProjectSource source = app.FindProjectSourceItem(path);
 			if (source == null) return;
@@ -199,8 +202,8 @@ namespace BeefLsp {
 
 		private void OnDidChange(Json args) {
 			// Get path
-			String path = scope .();
-			if (!GetPath(args["textDocument"]["uri"].AsString, path)) return;
+			String path = Utils.GetPathFromJson!(args).GetValueOrLog!("");
+			if (path.IsEmpty) return;
 
 			ProjectSource source = app.FindProjectSourceItem(path);
 			if (source == null) return;
@@ -247,45 +250,10 @@ namespace BeefLsp {
 			PublishDiagnostics(pass);
 		}
 
-		private bool GetPath(StringView uri, String buffer) {
-			if (!uri.StartsWith("file:///")) {
-				Log.Warning("Invalid URI, only file:/// URIs are supported: %s", uri);
-				return false;
-			}
-
-#if !BF_PLATFORM_WINDOWS
-			buffer.Set(uri[7...]);
-#else
-			buffer.Set(uri[8...]);
-#endif
-			buffer.Replace("%3A", ":");
-			buffer.Replace("%20", " ");
-			IDEUtils.FixFilePath(buffer);
-
-			return true;
-
-		}
-
-		private bool GetFileUri(StringView filePath, String buffer)
-		{
-			if (!Path.IsPathRooted(filePath)) {
-				Log.Warning("Invalid path, only rooted paths are supported: %s", filePath);
-				return false;
-			}
-
-#if !BF_PLATFORM_WINDOWS
-			buffer.AppendF($"file://{filePath}");
-#else
-			buffer.AppendF($"file:///{filePath}");
-#endif
-
-			return true;
-		}
-
 		private void OnDidClose(Json args) {
 			// Get path
-			String path = scope .();
-			if (!GetPath(args["textDocument"]["uri"].AsString, path)) return;
+			String path = Utils.GetPathFromJson!(args).GetValueOrLog!("");
+			if (path.IsEmpty) return;
 
 			ProjectSource source = app.FindProjectSourceItem(path);
 			if (source == null) return;
@@ -294,10 +262,9 @@ namespace BeefLsp {
 			documents.Remove(path);
 		}
 
-		private Result<Json> OnFoldingRange(Json args) {
+		private Result<Json, Error> OnFoldingRange(Json args) {
 			// Get path
-			String path = scope .();
-			if (!GetPath(args["textDocument"]["uri"].AsString, path)) return Json.Null();
+			String path = Utils.GetPathFromJson!(args).GetValueOrPassthrough!<Json>();
 
 			ProjectSource source = app.FindProjectSourceItem(path);
 			if (source == null) return Json.Null();
@@ -355,10 +322,9 @@ namespace BeefLsp {
 			return ranges;
 		}
 
-		private Result<Json> OnCompletion(Json args) {
+		private Result<Json, Error> OnCompletion(Json args) {
 			// Get path
-			String path = scope .();
-			if (!GetPath(args["textDocument"]["uri"].AsString, path)) return Json.Null();
+			String path = Utils.GetPathFromJson!(args).GetValueOrPassthrough!<Json>();
 
 			ProjectSource source = app.FindProjectSourceItem(path);
 			if (source == null) return Json.Null();
@@ -369,7 +335,7 @@ namespace BeefLsp {
 			
 			Document document = documents.Get(path);
 
-			int cursor = document.GetCharacter((.) args["position"]["line"].AsNumber, (.) args["position"]["character"].AsNumber);
+			int cursor = document.GetPosition(args);
 
 			String completionData = GetCompilerData(document, .Completions, cursor, .. scope .());
 			
@@ -447,6 +413,7 @@ namespace BeefLsp {
 		}
 
 		struct Symbol : this(StringView name, int kind, int line, int column) {}
+
 		class SymbolGroup {
 			public Symbol symbol;
 
@@ -458,10 +425,9 @@ namespace BeefLsp {
 			}
 		}
 
-		private Result<Json> OnDocumentSymbol(Json args) {
+		private Result<Json, Error> OnDocumentSymbol(Json args) {
 			// Get path
-			String path = scope .();
-			if (!GetPath(args["textDocument"]["uri"].AsString, path)) return Json.Null();
+			String path = Utils.GetPathFromJson!(args).GetValueOrPassthrough!<Json>();
 
 			ProjectSource source = app.FindProjectSourceItem(path);
 			if (source == null) return Json.Null();
@@ -666,10 +632,9 @@ namespace BeefLsp {
 		}
 		private static int Something(bool a, String b, int omg) => 159;
 
-		private Result<Json> OnSignatureHelp(Json args) {
+		private Result<Json, Error> OnSignatureHelp(Json args) {
 			// Get path
-			String path = scope .();
-			if (!GetPath(args["textDocument"]["uri"].AsString, path)) return Json.Null();
+			String path = Utils.GetPathFromJson!(args).GetValueOrPassthrough!<Json>();
 
 			ProjectSource source = app.FindProjectSourceItem(path);
 			if (source == null) return Json.Null();
@@ -680,7 +645,7 @@ namespace BeefLsp {
 
 			Document document = documents.Get(path);
 
-			int cursor = document.GetCharacter((.) args["position"]["line"].AsNumber, (.) args["position"]["character"].AsNumber);
+			int cursor = document.GetPosition(args);
 
 			String signatureData = GetCompilerData(document, .Completions, cursor, .. scope .());
 
@@ -807,10 +772,9 @@ namespace BeefLsp {
 			}
 		}
 
-		private Result<Json> OnHover(Json args) {
+		private Result<Json, Error> OnHover(Json args) {
 			// Get path
-			String path = scope .();
-			if (!GetPath(args["textDocument"]["uri"].AsString, path)) return Json.Null();
+			String path = Utils.GetPathFromJson!(args).GetValueOrPassthrough!<Json>();
 
 			ProjectSource source = app.FindProjectSourceItem(path);
 			if (source == null) return Json.Null();
@@ -821,7 +785,7 @@ namespace BeefLsp {
 
 			Document document = documents.Get(path);
 
-			int cursor = document.GetCharacter((.) args["position"]["line"].AsNumber, (.) args["position"]["character"].AsNumber);
+			int cursor = document.GetPosition(args);
 
 			String hoverData = GetCompilerData(document, .Hover, cursor, .. scope .());
 
@@ -864,10 +828,9 @@ namespace BeefLsp {
 			return json;
 		}
 
-		private Result<Json> OnDefinition(Json args) {
+		private Result<Json, Error> OnDefinition(Json args) {
 			// Get path
-			String path = scope .();
-			if (!GetPath(args["textDocument"]["uri"].AsString, path)) return Json.Null();
+			String path = Utils.GetPathFromJson!(args).GetValueOrPassthrough!<Json>();
 
 			ProjectSource source = app.FindProjectSourceItem(path);
 			if (source == null) return Json.Null();
@@ -878,7 +841,7 @@ namespace BeefLsp {
 
 			Document document = documents.Get(path);
 
-			int cursor = document.GetCharacter((.) args["position"]["line"].AsNumber, (.) args["position"]["character"].AsNumber);
+			int cursor = document.GetPosition(args);
 
 			String definitionData = GetCompilerData(document, .GoToDefinition, cursor, .. scope .());
 
@@ -905,16 +868,15 @@ namespace BeefLsp {
 
 			Json json = .Object();
 
-			json["uri"] = .String(GetFileUri(file, .. scope .()));
+			json["uri"] = .String(Utils.GetUri!(file).GetValueOrPassthrough!<Json>());
 			json["range"] = Range(line, column, line, column);
 
 			return json;
 		}
 
-		private Result<Json> OnReferences(Json args) {
+		private Result<Json, Error> OnReferences(Json args) {
 			// Get path
-			String path = scope .();
-			if (!GetPath(args["textDocument"]["uri"].AsString, path)) return Json.Null();
+			String path = Utils.GetPathFromJson!(args).GetValueOrPassthrough!<Json>();
 
 			ProjectSource source = app.FindProjectSourceItem(path);
 			if (source == null) return Json.Null();
@@ -925,7 +887,7 @@ namespace BeefLsp {
 
 			Document document = documents.Get(path);
 
-			int cursor = document.GetCharacter((.) args["position"]["line"].AsNumber, (.) args["position"]["character"].AsNumber);
+			int cursor = document.GetPosition(args);
 
 			String symbolData = GetCompilerData(document, .SymbolInfo, cursor, .. scope .());
 
@@ -953,17 +915,24 @@ namespace BeefLsp {
 				StringView file = it.GetNext().Value;
 				StringView data = it.GetNext().Value;
 
+				ProjectSource fileSource = app.FindProjectSourceItem(scope .(file));
+				if (fileSource == null) continue;
+
+				BfParser fileParser = app.mBfBuildSystem.FindParser(fileSource);
+				if (fileParser == null) continue;
+
 				for (let posStr in data.Split(' ', .RemoveEmptyEntries)) {
-					int startLine = int.Parse(posStr);
-					int startColumn = int.Parse(@posStr.GetNext().Value);
-					int endLine = int.Parse(@posStr.GetNext().Value);
-					int endColumn = int.Parse(@posStr.GetNext().Value);
+					int startChar = int.Parse(posStr);
+					int length = int.Parse(@posStr.GetNext().Value);
+
+					let (startLine, startColumn) = fileParser.GetLineCharAtIdx(startChar);
+					let (endLine, endColumn) = fileParser.GetLineCharAtIdx(startChar + length);
 
 					// Create json
 					Json json = .Object();
 					references.Add(json);
 
-					json["uri"] = .String(GetFileUri(file, .. scope .()));
+					json["uri"] = .String(Utils.GetUri!(file).GetValueOrPassthrough!<Json>());
 					json["range"] = Range(startLine, startColumn, endLine, endColumn);
 				}
 			}
@@ -1013,9 +982,9 @@ namespace BeefLsp {
 			}
 		}
 
-		private Result<Json> OnWorkspaceSymbol(Json args) {
+		private Result<Json, Error> OnWorkspaceSymbol(Json args) {
 			// Get symbol data
-			String symbolData = app.compiler.GetTypeDefMatches(args["query"].AsString, .. scope .());
+			String symbolData = app.compiler.GetTypeDefMatches(args["query"].AsString, .. scope .(), true);
 
 			// Parse data and create json
 			Json symbols = .Array();
@@ -1090,14 +1059,79 @@ namespace BeefLsp {
 
 				Json location = .Object();
 				symbol["location"] = location;
-				location["uri"] = .String(GetFileUri(file, .. scope .()));
+				location["uri"] = .String(Utils.GetUri!(file).GetValueOrPassthrough!<Json>());
 				location["range"] = Range(line, column, line, column);
 			}
 
 			return symbols;
 		}
 
-		private Result<Json> OnShutdown() {
+		private Result<Json, Error> OnRename(Json args) {
+			// Get path
+			String path = Utils.GetPathFromJson!(args).GetValueOrPassthrough!<Json>();
+
+			ProjectSource source = app.FindProjectSourceItem(path);
+			if (source == null) return Json.Null();
+
+			// Get symbol data
+			app.mBfBuildSystem.Lock(0);
+			defer app.mBfBuildSystem.Unlock();
+
+			Document document = documents.Get(path);
+
+			int cursor = document.GetPosition(args);
+
+			String symbolData = GetCompilerData(document, .SymbolInfo, cursor, .. scope .());
+
+			// Get references data
+			BfParser parser = scope .(null);
+
+			BfPassInstance pass = app.mBfBuildSystem.CreatePassInstance("GetSymbolReferences");
+			defer delete pass;
+
+			BfResolvePassData passData = parser.CreateResolvePassData(.ShowFileSymbolReferences);
+			defer delete passData;
+
+			ParseSymbolData(symbolData, passData);
+
+			String referencesData = app.compiler.GetSymbolReferences(pass, passData, .. scope .());
+
+			// Parse data
+			if (referencesData.IsEmpty) return .Err(new .(0, "Could not rename this symbol."));
+
+			Json workspaceEdit = .Object();
+
+			for (let line in Lines(referencesData)) {
+				var it = line.Split('\t', .RemoveEmptyEntries);
+
+				StringView file = it.GetNext().Value;
+				StringView data = it.GetNext().Value;
+
+				String uri = Utils.GetUri!(file).GetValueOrLog!("");
+				if (uri == "") continue;
+
+				Json edits = .Array();
+				workspaceEdit[uri] = edits;
+
+				for (let posStr in data.Split(' ', .RemoveEmptyEntries)) {
+					int startLine = int.Parse(posStr);
+					int startColumn = int.Parse(@posStr.GetNext().Value);
+					int endLine = int.Parse(@posStr.GetNext().Value);
+					int endColumn = int.Parse(@posStr.GetNext().Value);
+
+					// Create json
+					Json edit = .Object();
+					edits.Add(edit);
+
+					edit["range"] = Range(startLine, startColumn, endLine, endColumn);
+					edit["newText"] = .String(args["newName"].AsString);
+				}
+			}
+
+			return workspaceEdit;
+		}
+
+		private Result<Json, Error> OnShutdown() {
 			Log.Info("Shutting down");
 
 			app.Stop();
@@ -1130,18 +1164,25 @@ namespace BeefLsp {
 			case "textDocument/hover":          HandleRequest(json, OnHover(args));
 			case "textDocument/definition":     HandleRequest(json, OnDefinition(args));
 			case "textDocument/references":     HandleRequest(json, OnReferences(args));
+			case "textDocument/rename":         HandleRequest(json, OnRename(args));
 
 			case "workspace/symbol":            HandleRequest(json, OnWorkspaceSymbol(args));
 			}
 		}
 
-		private void HandleRequest(Json json, Result<Json> result) {
+		private void HandleRequest(Json json, Result<Json, Error> result) {
 			Json response = .Object();
 
 			response["jsonrpc"] = .String("2.0");
 			response["id"] = json["id"];
 
-			response["result"] = result;
+			switch (result) {
+			case .Ok(let val):
+				response["result"] = result;
+			case .Err(let err):
+				response["error"] = err.GetJson();
+				delete err;
+			}
 
 			Send(response);
 			response.Dispose();
