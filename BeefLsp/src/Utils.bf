@@ -27,15 +27,15 @@ namespace BeefLsp {
 	}
 
 	static class Utils {
-		public static mixin GetPathFromJson(Json json) {
-			GetPathFromJson(json, scope:mixin .())
+		public static mixin GetPath(Json json) {
+			GetPath(json, scope:mixin .())
 		}
 
-		public static Result<String, Error> GetPathFromJson(Json json, String buffer) {
-			return GetPathFromUri(json["textDocument"]["uri"].AsString, buffer);
+		public static Result<String, Error> GetPath(Json json, String buffer) {
+			return GetPath(json["textDocument"]["uri"].AsString, buffer);
 		}
 
-		public static Result<String, Error> GetPathFromUri(StringView uri, String buffer) {
+		public static Result<String, Error> GetPath(StringView uri, String buffer) {
 #if !BF_PLATFORM_WINDOWS
 			StringView prefix = "file://";
 #else
@@ -55,10 +55,10 @@ namespace BeefLsp {
 		}
 
 		public static mixin GetUri(StringView path) {
-			GetUriFromPath(path, scope:mixin .())
+			GetUri(path, scope:mixin .())
 		}
 		
-		public static Result<String, Error> GetUriFromPath(StringView path, String buffer) {
+		public static Result<String, Error> GetUri(StringView path, String buffer) {
 			if (!Path.IsPathRooted(path)) {
 				return .Err(new .(1, "Invalid path, only rooted paths are supported: {}", path));
 			}

@@ -14,6 +14,7 @@ Status: WIP
  - Go to definition
  - Find references
  - Workspace symbols
+ - Renaming
 
 ## Implemented transports
  - Stdio

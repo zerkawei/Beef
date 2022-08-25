@@ -22,7 +22,7 @@ namespace BeefLsp {
 				if (i > 0) buffer.Append(',');
 
 				buffer.Append('"');
-				buffer.Append(field.key);
+				Escape(field.key, buffer);
 				buffer.Append("\":");
 				Write(field.value, buffer);
 

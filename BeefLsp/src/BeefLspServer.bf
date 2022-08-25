@@ -64,7 +64,10 @@ namespace BeefLsp {
 			cap["definitionProvider"] = .Bool(true);
 			cap["referencesProvider"] = .Bool(true);
 			cap["workspaceSymbolProvider"] = .Bool(true);
-			cap["renameProvider"] = .Bool(true);
+
+			Json renameProvider = .Object();
+			cap["renameProvider"] = renameProvider;
+			renameProvider["prepareProvider"] = .Bool(true);
 
 			Json info = .Object();
 			res["serverInfo"] = info;
@@ -184,7 +187,7 @@ namespace BeefLsp {
 			Json j = args["textDocument"];
 
 			// Get path
-			String path = Utils.GetPathFromJson!(args).GetValueOrLog!("");
+			String path = Utils.GetPath!(args).GetValueOrLog!("");
 			if (path.IsEmpty) return;
 
 			ProjectSource source = app.FindProjectSourceItem(path);
@@ -202,7 +205,7 @@ namespace BeefLsp {
 
 		private void OnDidChange(Json args) {
 			// Get path
-			String path = Utils.GetPathFromJson!(args).GetValueOrLog!("");
+			String path = Utils.GetPath!(args).GetValueOrLog!("");
 			if (path.IsEmpty) return;
 
 			ProjectSource source = app.FindProjectSourceItem(path);
@@ -252,7 +255,7 @@ namespace BeefLsp {
 
 		private void OnDidClose(Json args) {
 			// Get path
-			String path = Utils.GetPathFromJson!(args).GetValueOrLog!("");
+			String path = Utils.GetPath!(args).GetValueOrLog!("");
 			if (path.IsEmpty) return;
 
 			ProjectSource source = app.FindProjectSourceItem(path);
@@ -264,7 +267,7 @@ namespace BeefLsp {
 
 		private Result<Json, Error> OnFoldingRange(Json args) {
 			// Get path
-			String path = Utils.GetPathFromJson!(args).GetValueOrPassthrough!<Json>();
+			String path = Utils.GetPath!(args).GetValueOrPassthrough!<Json>();
 
 			ProjectSource source = app.FindProjectSourceItem(path);
 			if (source == null) return Json.Null();
@@ -324,7 +327,7 @@ namespace BeefLsp {
 
 		private Result<Json, Error> OnCompletion(Json args) {
 			// Get path
-			String path = Utils.GetPathFromJson!(args).GetValueOrPassthrough!<Json>();
+			String path = Utils.GetPath!(args).GetValueOrPassthrough!<Json>();
 
 			ProjectSource source = app.FindProjectSourceItem(path);
 			if (source == null) return Json.Null();
@@ -427,7 +430,7 @@ namespace BeefLsp {
 
 		private Result<Json, Error> OnDocumentSymbol(Json args) {
 			// Get path
-			String path = Utils.GetPathFromJson!(args).GetValueOrPassthrough!<Json>();
+			String path = Utils.GetPath!(args).GetValueOrPassthrough!<Json>();
 
 			ProjectSource source = app.FindProjectSourceItem(path);
 			if (source == null) return Json.Null();
@@ -634,7 +637,7 @@ namespace BeefLsp {
 
 		private Result<Json, Error> OnSignatureHelp(Json args) {
 			// Get path
-			String path = Utils.GetPathFromJson!(args).GetValueOrPassthrough!<Json>();
+			String path = Utils.GetPath!(args).GetValueOrPassthrough!<Json>();
 
 			ProjectSource source = app.FindProjectSourceItem(path);
 			if (source == null) return Json.Null();
@@ -774,7 +777,7 @@ namespace BeefLsp {
 
 		private Result<Json, Error> OnHover(Json args) {
 			// Get path
-			String path = Utils.GetPathFromJson!(args).GetValueOrPassthrough!<Json>();
+			String path = Utils.GetPath!(args).GetValueOrPassthrough!<Json>();
 
 			ProjectSource source = app.FindProjectSourceItem(path);
 			if (source == null) return Json.Null();
@@ -830,7 +833,7 @@ namespace BeefLsp {
 
 		private Result<Json, Error> OnDefinition(Json args) {
 			// Get path
-			String path = Utils.GetPathFromJson!(args).GetValueOrPassthrough!<Json>();
+			String path = Utils.GetPath!(args).GetValueOrPassthrough!<Json>();
 
 			ProjectSource source = app.FindProjectSourceItem(path);
 			if (source == null) return Json.Null();
@@ -876,7 +879,7 @@ namespace BeefLsp {
 
 		private Result<Json, Error> OnReferences(Json args) {
 			// Get path
-			String path = Utils.GetPathFromJson!(args).GetValueOrPassthrough!<Json>();
+			String path = Utils.GetPath!(args).GetValueOrPassthrough!<Json>();
 
 			ProjectSource source = app.FindProjectSourceItem(path);
 			if (source == null) return Json.Null();
@@ -1068,7 +1071,7 @@ namespace BeefLsp {
 
 		private Result<Json, Error> OnRename(Json args) {
 			// Get path
-			String path = Utils.GetPathFromJson!(args).GetValueOrPassthrough!<Json>();
+			String path = Utils.GetPath!(args).GetValueOrPassthrough!<Json>();
 
 			ProjectSource source = app.FindProjectSourceItem(path);
 			if (source == null) return Json.Null();
@@ -1101,6 +1104,9 @@ namespace BeefLsp {
 
 			Json workspaceEdit = .Object();
 
+			Json changes = .Object();
+			workspaceEdit["changes"] = changes;
+
 			for (let line in Lines(referencesData)) {
 				var it = line.Split('\t', .RemoveEmptyEntries);
 
@@ -1110,14 +1116,21 @@ namespace BeefLsp {
 				String uri = Utils.GetUri!(file).GetValueOrLog!("");
 				if (uri == "") continue;
 
+				ProjectSource fileSource = app.FindProjectSourceItem(scope .(file));
+				if (fileSource == null) continue;
+
+				BfParser fileParser = app.mBfBuildSystem.FindParser(fileSource);
+				if (fileParser == null) continue;
+
 				Json edits = .Array();
-				workspaceEdit[uri] = edits;
+				changes[uri] = edits;
 
 				for (let posStr in data.Split(' ', .RemoveEmptyEntries)) {
-					int startLine = int.Parse(posStr);
-					int startColumn = int.Parse(@posStr.GetNext().Value);
-					int endLine = int.Parse(@posStr.GetNext().Value);
-					int endColumn = int.Parse(@posStr.GetNext().Value);
+					int startChar = int.Parse(posStr);
+					int length = int.Parse(@posStr.GetNext().Value);
+
+					let (startLine, startColumn) = fileParser.GetLineCharAtIdx(startChar);
+					let (endLine, endColumn) = fileParser.GetLineCharAtIdx(startChar + length);
 
 					// Create json
 					Json edit = .Object();
@@ -1129,6 +1142,54 @@ namespace BeefLsp {
 			}
 
 			return workspaceEdit;
+		}
+
+		private Result<Json, Error> OnPrepareRename(Json args) {
+			// Get path
+			String path = Utils.GetPath!(args).GetValueOrPassthrough!<Json>();
+
+			ProjectSource source = app.FindProjectSourceItem(path);
+			if (source == null) return Json.Null();
+
+			BfParser parser = app.mBfBuildSystem.FindParser(source);
+			if (parser == null) return Json.Null();
+
+			// Get symbol data
+			app.mBfBuildSystem.Lock(0);
+			defer app.mBfBuildSystem.Unlock();
+
+			Document document = documents.Get(path);
+
+			int cursor = document.GetPosition(args);
+
+			String symbolData = GetCompilerData(document, .SymbolInfo, cursor, .. scope .());
+
+			// Parse data
+			if (symbolData.IsEmpty) return Json.Null();
+
+			int start = -1;
+			int end = -1;
+
+			for (let line in Lines(symbolData)) {
+				if (line.StartsWith("insertRange")) {
+					StringView data = line[12...];
+					int spaceI = data.IndexOf(' ');
+
+					start = int.Parse(data[0...spaceI - 1]);
+					end = int.Parse(data.Substring(spaceI + 1));
+				}
+				else if (line.StartsWith("token")) {
+					return Json.Null();
+				}
+			}
+
+			if (start == -1) return Json.Null();
+
+			// Create json
+			let (startLine, startColumn) = parser.GetLineCharAtIdx(start);
+			let (endLine, endColumn) = parser.GetLineCharAtIdx(end);
+
+			return Range(startLine, startColumn, endLine, endColumn);
 		}
 
 		private Result<Json, Error> OnShutdown() {
@@ -1165,6 +1226,7 @@ namespace BeefLsp {
 			case "textDocument/definition":     HandleRequest(json, OnDefinition(args));
 			case "textDocument/references":     HandleRequest(json, OnReferences(args));
 			case "textDocument/rename":         HandleRequest(json, OnRename(args));
+			case "textDocument/prepareRename":  HandleRequest(json, OnPrepareRename(args));
 
 			case "workspace/symbol":            HandleRequest(json, OnWorkspaceSymbol(args));
 			}
