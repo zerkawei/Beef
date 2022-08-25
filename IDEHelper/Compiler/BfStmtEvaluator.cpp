@@ -801,7 +801,28 @@ void BfModule::EmitDeferredCall(BfModuleMethodInstance moduleMethodInstance, Siz
 	}
 }
 
-void BfModule::EmitDeferredCall(BfDeferredCallEntry& deferredCallEntry, bool moveBlocks)
+void BfModule::EmitDeferredCallProcessorInstances(BfScopeData* scopeData)
+{
+	BF_ASSERT(scopeData->mDone);
+
+	for (auto& deferredProcessor : scopeData->mDeferredCallProcessorInstances)
+	{
+		SetAndRestoreValue<bool> prevHadReturn(mCurMethodState->mHadReturn, false);
+		SetAndRestoreValue<bool> prevInPostReturn(mCurMethodState->mInPostReturn, false);
+		SetAndRestoreValue<bool> prevLeftBlockUncond(mCurMethodState->mLeftBlockUncond, false);
+
+		auto prevBlock = mBfIRBuilder->GetInsertBlock();
+
+		mBfIRBuilder->AddBlock(deferredProcessor.mProcessorBlock);
+		mBfIRBuilder->SetInsertPoint(deferredProcessor.mProcessorBlock);
+		EmitDeferredCallProcessor(scopeData, deferredProcessor.mDeferredCallEntry->mDynList, deferredProcessor.mDeferredCallEntry->mDynCallTail);
+		mBfIRBuilder->CreateBr(deferredProcessor.mContinueBlock);
+
+		mBfIRBuilder->SetInsertPoint(prevBlock);
+	}
+}
+
+void BfModule::EmitDeferredCall(BfScopeData* scopeData, BfDeferredCallEntry& deferredCallEntry, bool moveBlocks)
 {
 	if ((mCompiler->mIsResolveOnly) && (!mIsComptimeModule) && (deferredCallEntry.mHandlerCount > 0))
 	{
@@ -813,7 +834,25 @@ void BfModule::EmitDeferredCall(BfDeferredCallEntry& deferredCallEntry, bool mov
 
 	if (deferredCallEntry.IsDynList())
 	{
-		EmitDeferredCallProcessor(deferredCallEntry.mDynList, deferredCallEntry.mDynCallTail);
+		if (scopeData->mDone)
+		{
+			EmitDeferredCallProcessor(scopeData, deferredCallEntry.mDynList, deferredCallEntry.mDynCallTail);
+		}
+		else
+		{
+			BfDeferredCallProcessorInstance deferredProcessor;
+			deferredProcessor.mProcessorBlock = mBfIRBuilder->CreateBlock("dyn.processor");
+			deferredProcessor.mContinueBlock = mBfIRBuilder->CreateBlock("dyn.continue");
+			deferredProcessor.mDeferredCallEntry = &deferredCallEntry;
+			scopeData->mDeferredCallProcessorInstances.Add(deferredProcessor);
+			mBfIRBuilder->CreateBr(deferredProcessor.mProcessorBlock);
+
+			mBfIRBuilder->AddBlock(deferredProcessor.mContinueBlock);
+			mBfIRBuilder->SetInsertPoint(deferredProcessor.mContinueBlock);
+			SetIllegalSrcPos();
+			EmitEnsureInstructionAt();
+		}
+
 		return;
 	}
 
@@ -877,7 +916,7 @@ void BfModule::EmitDeferredCall(BfDeferredCallEntry& deferredCallEntry, bool mov
 	EmitDeferredCall(deferredCallEntry.mModuleMethodInstance, args, flags);
 }
 
-void BfModule::EmitDeferredCallProcessor(SLIList<BfDeferredCallEntry*>& callEntries, BfIRValue callTail)
+void BfModule::EmitDeferredCallProcessor(BfScopeData* scopeData, SLIList<BfDeferredCallEntry*>& callEntries, BfIRValue callTail)
 {
 	int64 collisionId = 0;
 
@@ -1036,7 +1075,7 @@ void BfModule::EmitDeferredCallProcessor(SLIList<BfDeferredCallEntry*>& callEntr
 		}
 
 		auto prevHead = callEntries.mHead;
-		EmitDeferredCall(*deferredCallEntry, moveBlocks);
+		EmitDeferredCall(scopeData, *deferredCallEntry, moveBlocks);
 		ValueScopeEnd(valueScopeStart);
 		mBfIRBuilder->CreateBr(condBB);
 
@@ -5350,7 +5389,7 @@ void BfModule::Visit(BfBreakStatement* breakStmt)
 	bool inMixinDecl = (mCurMethodInstance != NULL) && (mCurMethodInstance->IsMixin());
 
 	UpdateSrcPos(breakStmt);
-	mBfIRBuilder->CreateEnsureInstructionAt();
+	EmitEnsureInstructionAt();
 
 	BfBreakData* breakData = mCurMethodState->mBreakData;
 	if (breakStmt->mLabel != NULL)
@@ -5466,7 +5505,7 @@ void BfModule::Visit(BfContinueStatement* continueStmt)
 	bool inMixinDecl = (mCurMethodInstance != NULL) && (mCurMethodInstance->IsMixin());
 
 	UpdateSrcPos(continueStmt);
-	mBfIRBuilder->CreateEnsureInstructionAt();
+	EmitEnsureInstructionAt();
 
 	// If we're in a switch, 'break' is valid but we need to continue looking outward for a 'continue' target
 	BfBreakData* breakData = mCurMethodState->mBreakData;
@@ -5867,7 +5906,7 @@ void BfModule::Visit(BfWhileStatement* whileStmt)
 
 	if (checkVal.mValue.IsConst())
 	{
-		mBfIRBuilder->CreateEnsureInstructionAt();
+		EmitEnsureInstructionAt();
 
 		auto constVal = mBfIRBuilder->GetConstantById(checkVal.mValue.mId);
 		if (constVal->mTypeCode == BfTypeCode_Boolean)

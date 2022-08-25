@@ -400,21 +400,30 @@ void BfAmbiguityContext::Finish()
 		{
 			auto declMethodInstance = mTypeInstance->mVirtualMethodTable[id].mDeclaringMethod;
 			auto error = mModule->Fail(StrFormat("Method '%s' has ambiguous overrides", mModule->MethodToString(declMethodInstance).c_str()), declMethodInstance->mMethodDef->GetRefNode());
-			for (auto candidate : entry->mCandidates)
+			if (error != NULL)
 			{
-				mModule->mCompiler->mPassInstance->MoreInfo(StrFormat("'%s' is a candidate", mModule->MethodToString(candidate).c_str()), candidate->mMethodDef->GetRefNode());
+				for (auto candidate : entry->mCandidates)
+				{
+					mModule->mCompiler->mPassInstance->MoreInfo(StrFormat("'%s' is a candidate",
+						mModule->MethodToString(candidate, (BfMethodNameFlags)(BfMethodNameFlag_ResolveGenericParamNames | BfMethodNameFlag_IncludeReturnType)).c_str()), candidate->mMethodDef->GetRefNode());
+				}
 			}
 		}
 		else
 		{
 			auto iMethodInst = entry->mInterfaceEntry->mInterfaceType->mMethodInstanceGroups[entry->mMethodIdx].mDefault;
 			auto error = mModule->Fail(StrFormat("Interface method '%s' has ambiguous implementations", mModule->MethodToString(iMethodInst).c_str()), entry->mInterfaceEntry->mDeclaringType->GetRefNode());
-			for (auto candidate : entry->mCandidates)
+			if (error != NULL)
 			{
-				mModule->mCompiler->mPassInstance->MoreInfo(StrFormat("'%s' is a candidate", mModule->MethodToString(candidate).c_str()), candidate->mMethodDef->GetRefNode());
+				for (auto candidate : entry->mCandidates)
+				{
+					mModule->mCompiler->mPassInstance->MoreInfo(StrFormat("'%s' is a candidate",
+						mModule->MethodToString(candidate, (BfMethodNameFlags)(BfMethodNameFlag_ResolveGenericParamNames | BfMethodNameFlag_IncludeReturnType)).c_str()), candidate->mMethodDef->GetRefNode());
+				}
 			}
 		}
 	}
+	mEntries.Clear();
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -2006,8 +2015,11 @@ void BfModule::RestoreScopeState()
 		}
 	}
 
+	mCurMethodState->mCurScope->mDone = true;
 	if (!mCurMethodState->mLeftBlockUncond)
 		EmitDeferredScopeCalls(true, mCurMethodState->mCurScope);
+
+	EmitDeferredCallProcessorInstances(mCurMethodState->mCurScope);
 
 	RestoreScoreState_LocalVariables();
 
@@ -16017,7 +16029,7 @@ void BfModule::EmitDeferredScopeCalls(bool useSrcPositions, BfScopeData* scopeDa
 					}
 
 					auto prevHead = checkScope->mDeferredCallEntries.mHead;
-					EmitDeferredCall(*deferredCallEntry, true);
+					EmitDeferredCall(checkScope, *deferredCallEntry, true);
 					if (prevHead != checkScope->mDeferredCallEntries.mHead)
 					{
 						// The list changed, start over and ignore anything we've already handled
@@ -16028,7 +16040,7 @@ void BfModule::EmitDeferredScopeCalls(bool useSrcPositions, BfScopeData* scopeDa
 				}
 				else
 				{
-					EmitDeferredCall(*deferredCallEntry, true);
+					EmitDeferredCall(checkScope, *deferredCallEntry, true);
 					deferredCallEntry = deferredCallEntry->mNext;
 				}
 			}
@@ -19846,6 +19858,12 @@ void BfModule::ProcessMethod(BfMethodInstance* methodInstance, bool isInlineDup,
 		}
 	}
 
+	if (mBfIRBuilder == NULL)
+	{
+		BfLogSysM("ProcessMethod %p calling EnsureIRBuilder\n", methodInstance);
+		EnsureIRBuilder();
+	}
+
 	SetAndRestoreValue<bool> prevIgnoreWrites(mBfIRBuilder->mIgnoreWrites, (mWantsIRIgnoreWrites || methodInstance->mIsUnspecialized) && (!forceIRWrites));
 
 	if ((HasCompiledOutput()) && (!mBfIRBuilder->mIgnoreWrites))
@@ -21819,11 +21837,14 @@ void BfModule::ProcessMethod(BfMethodInstance* methodInstance, bool isInlineDup,
 			AssertErrorState();
 	}
 
+	mCurMethodState->mHeadScope.mDone = true;
 	if (!mCurMethodState->mHadReturn)
 	{
 		// Clear off the stackallocs that have occurred after a scopeData break
 		EmitDeferredScopeCalls(false, &mCurMethodState->mHeadScope, mCurMethodState->mIRExitBlock);
 	}
+
+	EmitDeferredCallProcessorInstances(&mCurMethodState->mHeadScope);
 
 	if (mCurMethodState->mIRExitBlock)
 	{
@@ -25443,6 +25464,12 @@ bool BfModule::SlotVirtualMethod(BfMethodInstance* methodInstance, BfAmbiguityCo
 					bool isWorse = false;
 					isBetter = (methodInstance->mMethodInfoEx != NULL) && (methodInstance->mMethodInfoEx->mExplicitInterface != NULL);
 					isWorse = (prevMethod->mMethodInfoEx != NULL) && (prevMethod->mMethodInfoEx->mExplicitInterface != NULL);
+					if (isBetter == isWorse)
+					{
+						isBetter = methodInstance->mReturnType == iMethodInst->mReturnType;
+						isWorse = prevMethod->mReturnType == iMethodInst->mReturnType;
+					}
+
 					if (isBetter == isWorse)
 						CompareDeclTypes(typeInstance, methodInstance->mMethodDef->mDeclaringType, prevMethod->mMethodDef->mDeclaringType, isBetter, isWorse);
 					if (isBetter == isWorse)

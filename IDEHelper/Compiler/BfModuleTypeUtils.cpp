@@ -5433,8 +5433,8 @@ void BfModule::DoPopulateType(BfType* resolvedTypeRef, BfPopulateType populateTy
 						{
 							BF_ASSERT(resolvedFieldType->mSize >= 0);
 
-							if (alignSize > 1)
-								dataPos = (dataPos + (alignSize - 1)) & ~(alignSize - 1);
+// 							if (alignSize > 1)
+// 								dataPos = (dataPos + (alignSize - 1)) & ~(alignSize - 1);
 							fieldInstance->mDataOffset = dataPos;
 
 							typeInstance->mInstAlign = std::max(typeInstance->mInstAlign, alignSize);
@@ -5623,7 +5623,7 @@ void BfModule::DoPopulateType(BfType* resolvedTypeRef, BfPopulateType populateTy
 
 		if (unionInnerType != NULL)
 		{
-			dataPos = unionInnerType->mSize;
+			dataPos = startDataPos + unionInnerType->mSize;
 			typeInstance->mInstAlign = BF_MAX(unionInnerType->mAlign, typeInstance->mInstAlign);
 		}
 
@@ -7081,7 +7081,7 @@ void BfModule::DoTypeInstanceMethodProcessing(BfTypeInstance* typeInstance)
 						}
 						else
 						{
-							String methodString;
+							String ifaceMethodString;
 							///
 							{
 								BfTypeState typeState;
@@ -7090,13 +7090,15 @@ void BfModule::DoTypeInstanceMethodProcessing(BfTypeInstance* typeInstance)
 								SetAndRestoreValue<BfTypeState*> prevTypeState(mContext->mCurTypeState, &typeState);
 
 								SetAndRestoreValue<BfMethodInstance*> prevMethodInstance(mCurMethodInstance, ifaceMethodInst);
-								methodString = MethodToString(ifaceMethodInst);
+								ifaceMethodString = MethodToString(ifaceMethodInst, (BfMethodNameFlags)(BfMethodNameFlag_ResolveGenericParamNames | BfMethodNameFlag_IncludeReturnType));
 							}
 
 							BfTypeDeclaration* typeDecl = declTypeDef->mTypeDeclaration;
-							BfError* error = Fail(StrFormat("'%s' does not implement interface member '%s'", TypeToString(typeInstance).c_str(), methodString.c_str()), typeDecl->mNameNode, true);
+							BfError* error = Fail(StrFormat("'%s' does not implement interface member '%s'", TypeToString(typeInstance).c_str(), ifaceMethodString.c_str()), typeDecl->mNameNode, true);
 							if ((matchedMethod != NULL) && (error != NULL))
 							{
+								String matchedMethodString = MethodToString(matchedMethod, (BfMethodNameFlags)(BfMethodNameFlag_ResolveGenericParamNames | BfMethodNameFlag_IncludeReturnType));
+
 								if (hadStaticFailure)
 								{
 									auto staticNodeRef = matchedMethod->mMethodDef->GetRefNode();
@@ -7106,31 +7108,31 @@ void BfModule::DoTypeInstanceMethodProcessing(BfTypeInstance* typeInstance)
 
 									if (matchedMethod->mMethodDef->mIsStatic)
 										mCompiler->mPassInstance->MoreInfo(StrFormat("'%s' cannot match because it's static",
-											methodString.c_str()), staticNodeRef);
+											matchedMethodString.c_str()), staticNodeRef);
 									else
 										mCompiler->mPassInstance->MoreInfo(StrFormat("'%s' cannot match because it's not static",
-											methodString.c_str()), staticNodeRef);
+											matchedMethodString.c_str()), staticNodeRef);
 								}
 								else if (hadPubFailure)
 								{
 									mCompiler->mPassInstance->MoreInfo(StrFormat("'%s' cannot match because it's not public",
-										methodString.c_str()), matchedMethod->mMethodDef->mReturnTypeRef);
+										matchedMethodString.c_str()), matchedMethod->mMethodDef->mReturnTypeRef);
 								}
 								else if (ifaceMethodInst->mReturnType->IsConcreteInterfaceType())
 								{
 									mCompiler->mPassInstance->MoreInfo(StrFormat("'%s' cannot match because it does not have a concrete return type that implements '%s'",
-										methodString.c_str(), TypeToString(ifaceMethodInst->mReturnType).c_str()), matchedMethod->mMethodDef->mReturnTypeRef);
+										matchedMethodString.c_str(), TypeToString(ifaceMethodInst->mReturnType).c_str()), matchedMethod->mMethodDef->mReturnTypeRef);
 								}
 								else if (hadMutFailure)
 								{
 									mCompiler->mPassInstance->MoreInfo(StrFormat("'%s' cannot match because it's market as 'mut' but interface method does not allow it",
-										methodString.c_str()), matchedMethod->mMethodDef->GetMutNode());
+										matchedMethodString.c_str()), matchedMethod->mMethodDef->GetMutNode());
 									mCompiler->mPassInstance->MoreInfo(StrFormat("Declare the interface method as 'mut' to allow matching 'mut' implementations"), ifaceMethodInst->mMethodDef->mMethodDeclaration);
 								}
 								else
 								{
 									mCompiler->mPassInstance->MoreInfo(StrFormat("'%s' cannot match because it does not have the return type '%s'",
-										methodString.c_str(), TypeToString(ifaceMethodInst->mReturnType).c_str()), matchedMethod->mMethodDef->mReturnTypeRef);
+										matchedMethodString.c_str(), TypeToString(ifaceMethodInst->mReturnType).c_str()), matchedMethod->mMethodDef->mReturnTypeRef);
 									if ((ifaceMethodInst->mVirtualTableIdx != -1) && (ifaceMethodInst->mReturnType->IsInterface()))
 										mCompiler->mPassInstance->MoreInfo("Declare the interface method as 'concrete' to allow matching concrete return values", ifaceMethodInst->mMethodDef->GetMethodDeclaration()->mVirtualSpecifier);
 								}
@@ -9915,7 +9917,7 @@ BfTypeDef* BfModule::GetActiveTypeDef(BfTypeInstance* typeInstanceOverride, bool
 	else if ((mCurMethodInstance != NULL) && (mCurMethodInstance->mMethodDef->mDeclaringType != NULL))
 	{
 		auto declTypeDef = mCurMethodInstance->mMethodDef->mDeclaringType;
-		useTypeDef = declTypeDef->GetDefinition();
+		useTypeDef = declTypeDef->GetDefinition(true);
 		if ((declTypeDef->IsEmitted()) && (useTypeDef->mIsCombinedPartial))
 		{
 			// Always consider methods to belong to the primary type declaration
@@ -9925,10 +9927,11 @@ BfTypeDef* BfModule::GetActiveTypeDef(BfTypeInstance* typeInstanceOverride, bool
 	else if (mContext->mCurTypeState != NULL)
 	{
 		if ((mContext->mCurTypeState->mCurFieldDef != NULL) && (mContext->mCurTypeState->mCurFieldDef->mDeclaringType != NULL))
-			useTypeDef = mContext->mCurTypeState->mCurFieldDef->mDeclaringType->GetDefinition();
+			useTypeDef = mContext->mCurTypeState->mCurFieldDef->mDeclaringType->GetDefinition(true);
 		else if (mContext->mCurTypeState->mCurTypeDef != NULL)
-			useTypeDef = mContext->mCurTypeState->mCurTypeDef->GetDefinition();
+			useTypeDef = mContext->mCurTypeState->mCurTypeDef->GetDefinition(true);
 	}
+
 	return useTypeDef;
 }
 
