@@ -7,7 +7,7 @@ Status: WIP
  - Shutdown
  - Diagnostics
  - Folding ranges
- - Completions (WIP)
+ - Completions
  - Document symbols
  - Signature help
  - Hover

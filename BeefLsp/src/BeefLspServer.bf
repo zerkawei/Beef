@@ -50,6 +50,7 @@ namespace BeefLsp {
 			Json completionProvider = .Object();
 			cap["completionProvider"] = completionProvider;
 			completionProvider["triggerCharacters"] = .Array()..Add(.String("."));
+			completionProvider["resolveProvider"] = .Bool(true);
 
 			Json documentSymbolProvider = .Object();
 			cap["documentSymbolProvider"] = documentSymbolProvider;
@@ -410,9 +411,89 @@ namespace BeefLsp {
 
 				json["label"] = .String(text);
 				json["kind"] = .Number(kind);
+
+				Json data = .Object();
+				json["data"] = data;
+				data["path"] = .String(path);
+				data["cursor"] = .Number(cursor);
 			}
 
 			return items;
+		}
+
+		private Result<Json, Error> OnCompletionResolve(Json args) {
+			// Get path
+			String path = IDEUtils.FixFilePath(.. scope .(args["data"]["path"].AsString));
+
+			// Get completion data
+			app.mBfBuildSystem.Lock(0);
+			defer app.mBfBuildSystem.Unlock();
+
+			Document document = documents.Get(path);
+
+			String completionData = GetCompilerData(document, .Completions, (.) args["data"]["cursor"].AsNumber, .. scope .(), args["label"].AsString);
+
+			// Create json
+			Json json = args.Copy();
+
+			StringView detail = "";
+
+			for (let line in Lines(completionData)) {
+				if (line.StartsWith("class") || line.StartsWith("valuetype")) {
+					StringView doc = line.Substring(line.IndexOf('\x03') + 1);
+					detail = doc.Substring(doc.IndexOf(' ') + 1);
+				}
+				else if (line.StartsWith("method") || line.StartsWith("mixin")) {
+					StringView doc = line.Substring(line.IndexOf('\x03') + 1);
+
+					int sigI = doc.IndexOf('\x04');
+					if (sigI == -1) {
+						detail = doc;
+					}
+					else {
+						int docI = doc.IndexOf('\x05');
+
+						if (docI == -1) detail = doc[0...sigI - 1];
+						else detail = scope:: String(doc[0...sigI - 1])..Append(doc.Substring(docI));
+					}
+				}
+				else if (line.StartsWith("property") || line.StartsWith("object") || line.StartsWith("value")) {
+					StringView doc = line.Substring(line.IndexOf('\x03') + 1);
+					//detail = doc[0...doc.IndexOf(' ') - 1]; // TODO: Somehow only return the type and not the name
+					detail = doc;
+				}
+				else if (line.StartsWith("interface")) {
+					detail = line.Substring(line.IndexOf('\x03') + 1);
+				}
+
+				if (!detail.IsEmpty) break;
+			}
+
+			detail: if (!detail.IsEmpty) {
+				int docI = detail.IndexOf('\x05');
+				String documentation = null;
+
+				if (docI != -1) {
+					documentation = scope:detail .();
+					for (let line in detail.Substring(docI + 1).Split('\x03', .RemoveEmptyEntries)) {
+						StringView str = line;
+
+						str.Trim();
+						if (str.StartsWith("///")) str = str[3...];
+						str.Trim();
+
+						documentation.Append(str);
+						if (@line.HasMore) documentation.Append('\n');
+					}
+
+					detail = detail[0...docI - 1];
+				}
+
+				json["detail"] = .String(detail);
+				if (documentation != null) json["documentation"] = .String(documentation);
+			}
+
+			return json;
 		}
 
 		struct Symbol : this(StringView name, int kind, int line, int column) {}
@@ -588,7 +669,7 @@ namespace BeefLsp {
 			SymbolInfo
 		}
 
-		private void GetCompilerData(Document document, CompilerDataType type, int character, String buffer) {
+		private void GetCompilerData(Document document, CompilerDataType type, int character, String buffer, StringView entryName = "") {
 			ProjectSource source = app.FindProjectSourceItem(document.path);
 			BfParser parser = app.mBfBuildSystem.CreateParser(source, false);
 
@@ -619,6 +700,8 @@ namespace BeefLsp {
 
 			let passData = parser.CreateResolvePassData(resolveType);
 			defer delete passData;
+
+			if (!entryName.IsEmpty) passData.SetDocumentationRequest(scope .(entryName));
 
 			parser.Parse(pass, false);
 			parser.Reduce(pass);
@@ -1220,6 +1303,7 @@ namespace BeefLsp {
 
 			case "textDocument/foldingRange":   HandleRequest(json, OnFoldingRange(args));
 			case "textDocument/completion":     HandleRequest(json, OnCompletion(args));
+			case "completionItem/resolve":      HandleRequest(json, OnCompletionResolve(args));
 			case "textDocument/documentSymbol": HandleRequest(json, OnDocumentSymbol(args));
 			case "textDocument/signatureHelp":  HandleRequest(json, OnSignatureHelp(args));
 			case "textDocument/hover":          HandleRequest(json, OnHover(args));

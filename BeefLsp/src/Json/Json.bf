@@ -166,6 +166,23 @@ namespace BeefLsp {
 			}
 		}
 		public void Merge(Json json) => Merge(json, scope (key) => true);
+
+		public Json Copy() {
+			switch (type) {
+			case .Null: return .Null();
+			case .Object:
+				Json json = .Object();
+				for (let pair in AsObject) json[pair.key] = pair.value.Copy();
+				return json;
+			case .Array:
+				Json json = .Array();
+				for (let item in AsArray) json.Add(item.Copy());
+				return json;
+			case .String: return .String(AsString);
+			case .Number: return .Number(AsNumber);
+			case .Bool:   return .Bool(AsBool);
+			}
+		}
 		
 		public void Dispose() {
 			if (IsObject) {
