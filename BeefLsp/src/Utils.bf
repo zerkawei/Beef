@@ -96,3 +96,12 @@ namespace System {
 		}
 	}
 }
+
+namespace IDE {
+	extension IDEApp {
+		public mixin LockSystem() {
+			mBfBuildSystem.Lock(0);
+			defer:mixin mBfBuildSystem.Unlock();
+		}
+	}
+}

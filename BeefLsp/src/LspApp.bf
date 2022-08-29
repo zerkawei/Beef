@@ -11,6 +11,8 @@ using Beefy.widgets;
 
 namespace BeefLsp {
 	class LspApp : IDEApp {
+		public static LspApp APP;
+
 		public BfCompiler compiler ~ delete _;
 
 		public override void Init()	{
@@ -28,6 +30,8 @@ namespace BeefLsp {
 
 			CreateBfSystems();
 			compiler = mBfBuildSystem.CreateCompiler(true);
+
+			APP = this;
 		}
 
 		public void LoadWorkspace(StringView path) {

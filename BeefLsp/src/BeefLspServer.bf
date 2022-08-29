@@ -79,8 +79,7 @@ namespace BeefLsp {
 		}
 
 		private void OnInitialized() {
-			app.mBfBuildSystem.Lock(0);
-			defer app.mBfBuildSystem.Unlock();
+			LspApp.APP.LockSystem!();
 
 			// Generate initial diagnostics
 			BfPassInstance pass = app.mBfBuildSystem.CreatePassInstance("IntialParse");
@@ -151,16 +150,23 @@ namespace BeefLsp {
 			DeleteDictionaryAndKeysAndValues!(files);
 		}
 
+		private BfParser GetParser(String path) {
+			ProjectSource source = app.FindProjectSourceItem(path);
+			if (source == null) return null;
+
+			return app.mBfBuildSystem.FindParser(source);
+		}
+
 		private Json? GetDiagnostic(BfPassInstance.BfError error) {
-			Document document = documents.Get(error.mFilePath);
-			if (document == null) return null;
+			BfParser parser = GetParser(error.mFilePath);
+			if (parser == null) return null;
 
 			Json json = .Object();
 
-			LineInfo startLineInfo = document.GetLineInfo(error.mSrcStart);
-			LineInfo endLineInfo = document.GetLineInfo(error.mSrcEnd);
+			let (startLine, startColumn) = parser.GetLineCharAtIdx(error.mSrcStart);
+			let (endLine, endColumn) = parser.GetLineCharAtIdx(error.mSrcEnd);
 
-			json["range"] = Range(startLineInfo.line, error.mSrcStart - startLineInfo.start, endLineInfo.line, error.mSrcEnd - endLineInfo.start);
+			json["range"] = Range(startLine, startColumn, endLine, endColumn);
 			json["severity"] = .Number(error.mIsWarning ? 2 : 1);
 			json["code"] = .Number(error.mCode);
 			json["message"] = .String(error.mError);
@@ -198,10 +204,10 @@ namespace BeefLsp {
 			String contents = new .();
 			j["text"].AsString.Unescape(contents);
 
-			Document document = documents.Add(path, (.) j["version"].AsNumber, contents);
+			Document document = documents.Add(path, (.) j["version"].AsNumber, contents, source);
 
 			// Parse
-			ParseDocument(document);
+			document.Parse(scope => PublishDiagnostics);
 		}
 
 		private void OnDidChange(Json args) {
@@ -209,8 +215,8 @@ namespace BeefLsp {
 			String path = Utils.GetPath!(args).GetValueOrLog!("");
 			if (path.IsEmpty) return;
 
-			ProjectSource source = app.FindProjectSourceItem(path);
-			if (source == null) return;
+			Document document = documents.Get(path);
+			if (document == null) return;
 
 			// Get contents
 			StringView contentsRaw;
@@ -222,45 +228,16 @@ namespace BeefLsp {
 			contentsRaw.Unescape(contents);
 
 			// Update document
-			Document document = documents.Get(path);
 			document.SetContents((.) args["textDocument"]["version"].AsNumber, contents);
 
 			// Parse
-			ParseDocument(document);
-		}
-
-		private void ParseDocument(Document document) {
-			app.mBfBuildSystem.Lock(0);
-			defer app.mBfBuildSystem.Unlock();
-
-			ProjectSource source = app.FindProjectSourceItem(document.path);
-			BfParser parser = app.mBfBuildSystem.CreateParser(source);
-
-			BfPassInstance pass = app.mBfBuildSystem.CreatePassInstance("Parse");
-			defer delete pass;
-
-			parser.SetSource(document.contents, document.path, -1);
-			parser.Parse(pass, false);
-			parser.Reduce(pass);
-			parser.BuildDefs(pass, null, false);
-
-			// Classify
-			BfResolvePassData passData = .Create(.None);
-			defer delete passData;
-
-			app.compiler.ClassifySource(pass, passData);
-
-			// Publish diagnostics
-			PublishDiagnostics(pass);
+			document.Parse(scope => PublishDiagnostics);
 		}
 
 		private void OnDidClose(Json args) {
 			// Get path
 			String path = Utils.GetPath!(args).GetValueOrLog!("");
 			if (path.IsEmpty) return;
-
-			ProjectSource source = app.FindProjectSourceItem(path);
-			if (source == null) return;
 
 			// Remove
 			documents.Remove(path);
@@ -270,20 +247,11 @@ namespace BeefLsp {
 			// Get path
 			String path = Utils.GetPath!(args).GetValueOrPassthrough!<Json>();
 
-			ProjectSource source = app.FindProjectSourceItem(path);
-			if (source == null) return Json.Null();
+			Document document = documents.Get(path);
+			if (document == null) return Json.Null();
 
 			// Get folding range data
-			app.mBfBuildSystem.Lock(0);
-			defer app.mBfBuildSystem.Unlock();
-
-			Document document = documents.Get(path);
-			BfParser parser = app.mBfBuildSystem.FindParser(source);
-
-			var resolvePassData = parser.CreateResolvePassData(.None);
-			defer delete resolvePassData;
-
-			String collapseData = app.compiler.GetCollapseRegions(parser, resolvePassData, "", .. scope .());
+			String collapseData = document.GetFoldingData(.. scope .());
 
 			// Parse data to json
 			Json ranges = .Array();
@@ -304,16 +272,16 @@ namespace BeefLsp {
 					continue;
 				}
 
-				LineInfo startLine = document.GetLineInfo(start);
-				LineInfo endLine = document.GetLineInfo(end);
+				let (startLine, startColumn) = document.GetLine(start);
+				let (endLine, endColumn) = document.GetLine(end);
 
 				// Create json
 				Json json = .Object();
 				ranges.Add(json);
 
-				json["startLine"] = .Number(startLine.line);
+				json["startLine"] = .Number(startLine);
 				//json["startCharacter"] = .Number(startLine.start - start);
-				json["endLine"] = .Number(endLine.line - 1);
+				json["endLine"] = .Number(endLine - 1);
 				//json["endCharacter"] = .Number(endLine.start - end);
 
 				switch (kind) {
@@ -330,18 +298,12 @@ namespace BeefLsp {
 			// Get path
 			String path = Utils.GetPath!(args).GetValueOrPassthrough!<Json>();
 
-			ProjectSource source = app.FindProjectSourceItem(path);
-			if (source == null) return Json.Null();
+			Document document = documents.Get(path);
+			if (document == null) return Json.Null();
 
 			// Get completion data
-			app.mBfBuildSystem.Lock(0);
-			defer app.mBfBuildSystem.Unlock();
-			
-			Document document = documents.Get(path);
-
 			int cursor = document.GetPosition(args);
-
-			String completionData = GetCompilerData(document, .Completions, cursor, .. scope .());
+			String completionData = document.GetCompilerData(.Completions, cursor, .. scope .());
 			
 			// Parse data to json
 			Json items = .Array();
@@ -382,6 +344,7 @@ namespace BeefLsp {
 						var it2 = it.GetNext().Value.Split(' ');
 						start = int.Parse(it2.GetNext().Value);
 						end = int.Parse(it2.GetNext().Value);
+					case "invokeInfo", "invoke": // noop
 					default: Log.Warning("Unknown completion type: {}", line);
 					}
 
@@ -425,13 +388,12 @@ namespace BeefLsp {
 			// Get path
 			String path = IDEUtils.FixFilePath(.. scope .(args["data"]["path"].AsString));
 
-			// Get completion data
-			app.mBfBuildSystem.Lock(0);
-			defer app.mBfBuildSystem.Unlock();
-
 			Document document = documents.Get(path);
+			if (document == null) return Json.Null();
 
-			String completionData = GetCompilerData(document, .Completions, (.) args["data"]["cursor"].AsNumber, .. scope .(), args["label"].AsString);
+			// Get completion data
+			int cursor = (.) args["data"]["cursor"].AsNumber;
+			String completionData = document.GetCompilerData(.Completions, cursor, .. scope .(), args["label"].AsString);
 
 			// Create json
 			Json json = args.Copy();
@@ -513,16 +475,11 @@ namespace BeefLsp {
 			// Get path
 			String path = Utils.GetPath!(args).GetValueOrPassthrough!<Json>();
 
-			ProjectSource source = app.FindProjectSourceItem(path);
-			if (source == null) return Json.Null();
+			Document document = documents.Get(path);
+			if (document == null) return Json.Null();
 
 			// Get navigation data
-			app.mBfBuildSystem.Lock(0);
-			defer app.mBfBuildSystem.Unlock();
-			
-			Document document = documents.Get(path);
-
-			String navigationData = GetCompilerData(document, .Navigation, 0, .. scope .());
+			String navigationData = document.GetCompilerData(.Navigation, 0, .. scope .());
 
 			// Parse data
 			List<Symbol> symbols = scope .();
@@ -661,79 +618,16 @@ namespace BeefLsp {
 			return json;
 		}
 
-		enum CompilerDataType {
-			Completions,
-			Navigation,
-			Hover,
-			GoToDefinition,
-			SymbolInfo
-		}
-
-		private void GetCompilerData(Document document, CompilerDataType type, int character, String buffer, StringView entryName = "") {
-			ProjectSource source = app.FindProjectSourceItem(document.path);
-			BfParser parser = app.mBfBuildSystem.CreateParser(source, false);
-
-			String name;
-			switch (type) {
-			case .Completions:    name = "GetCompilerData - Completions";
-			case .Navigation:     name = "GetCompilerData - Navigation";
-			case .Hover:          name = "GetCompilerData - Hover";
-			case .GoToDefinition: name = "GetCompilerData - GoToDefinition";
-			case .SymbolInfo:     name = "GetCompilerData - SymbolInfo";
-			}
-
-			let pass = app.mBfBuildSystem.CreatePassInstance(name);
-			defer delete pass;
-
-			ResolveType resolveType;
-			switch (type) {
-			case .Completions:    resolveType = .Autocomplete;
-			case .Navigation:     resolveType = .GetNavigationData;
-			case .Hover:          resolveType = .GetResultString;
-			case .GoToDefinition: resolveType = .GoToDefinition;
-			case .SymbolInfo:     resolveType = .GetSymbolInfo;
-			}
-			
-			parser.SetIsClassifying();
-			parser.SetSource(document.contents, document.path, -1);
-			parser.SetAutocomplete(type == .Navigation ? -1 : character);
-
-			let passData = parser.CreateResolvePassData(resolveType);
-			defer delete passData;
-
-			if (!entryName.IsEmpty) passData.SetDocumentationRequest(scope .(entryName));
-
-			parser.Parse(pass, false);
-			parser.Reduce(pass);
-			parser.BuildDefs(pass, passData, false);
-
-			BfParser.[Friend]BfParser_CreateClassifier(parser.mNativeBfParser, pass.mNativeBfPassInstance, passData.mNativeResolvePassData, null);
-			app.compiler.ClassifySource(pass, passData);
-			parser.FinishClassifier(passData);
-
-			app.compiler.GetAutocompleteInfo(buffer);
-
-			delete parser;
-			app.mBfBuildSystem.RemoveOldData();
-		}
-		private static int Something(bool a, String b, int omg) => 159;
-
 		private Result<Json, Error> OnSignatureHelp(Json args) {
 			// Get path
 			String path = Utils.GetPath!(args).GetValueOrPassthrough!<Json>();
 
-			ProjectSource source = app.FindProjectSourceItem(path);
-			if (source == null) return Json.Null();
+			Document document = documents.Get(path);
+			if (document == null) return Json.Null();
 
 			// Get signature data
-			app.mBfBuildSystem.Lock(0);
-			defer app.mBfBuildSystem.Unlock();
-
-			Document document = documents.Get(path);
-
 			int cursor = document.GetPosition(args);
-
-			String signatureData = GetCompilerData(document, .Completions, cursor, .. scope .());
+			String signatureData = document.GetCompilerData(.Completions, cursor, .. scope .());
 
 			// Parse data
 			List<String> signatures = scope .();
@@ -862,18 +756,12 @@ namespace BeefLsp {
 			// Get path
 			String path = Utils.GetPath!(args).GetValueOrPassthrough!<Json>();
 
-			ProjectSource source = app.FindProjectSourceItem(path);
-			if (source == null) return Json.Null();
+			Document document = documents.Get(path);
+			if (document == null) return Json.Null();
 
 			// Get hover data
-			app.mBfBuildSystem.Lock(0);
-			defer app.mBfBuildSystem.Unlock();
-
-			Document document = documents.Get(path);
-
 			int cursor = document.GetPosition(args);
-
-			String hoverData = GetCompilerData(document, .Hover, cursor, .. scope .());
+			String hoverData = document.GetCompilerData(.Hover, cursor, .. scope .());
 
 			// Parse data
 			if (hoverData.IsEmpty) return Json.Null();
@@ -918,18 +806,12 @@ namespace BeefLsp {
 			// Get path
 			String path = Utils.GetPath!(args).GetValueOrPassthrough!<Json>();
 
-			ProjectSource source = app.FindProjectSourceItem(path);
-			if (source == null) return Json.Null();
+			Document document = documents.Get(path);
+			if (document == null) return Json.Null();
 
 			// Get definition data
-			app.mBfBuildSystem.Lock(0);
-			defer app.mBfBuildSystem.Unlock();
-
-			Document document = documents.Get(path);
-
 			int cursor = document.GetPosition(args);
-
-			String definitionData = GetCompilerData(document, .GoToDefinition, cursor, .. scope .());
+			String definitionData = document.GetCompilerData(.GoToDefinition, cursor, .. scope .());
 
 			// Parse data
 			StringView file = "";
@@ -964,20 +846,16 @@ namespace BeefLsp {
 			// Get path
 			String path = Utils.GetPath!(args).GetValueOrPassthrough!<Json>();
 
-			ProjectSource source = app.FindProjectSourceItem(path);
-			if (source == null) return Json.Null();
+			Document document = documents.Get(path);
+			if (document == null) return Json.Null();
 
 			// Get symbol data
-			app.mBfBuildSystem.Lock(0);
-			defer app.mBfBuildSystem.Unlock();
-
-			Document document = documents.Get(path);
-
 			int cursor = document.GetPosition(args);
-
-			String symbolData = GetCompilerData(document, .SymbolInfo, cursor, .. scope .());
+			String symbolData = document.GetCompilerData(.SymbolInfo, cursor, .. scope .());
 
 			// Get references data
+			LspApp.APP.LockSystem!();
+
 			BfParser parser = scope .(null);
 
 			BfPassInstance pass = app.mBfBuildSystem.CreatePassInstance("GetSymbolReferences");
@@ -1156,20 +1034,16 @@ namespace BeefLsp {
 			// Get path
 			String path = Utils.GetPath!(args).GetValueOrPassthrough!<Json>();
 
-			ProjectSource source = app.FindProjectSourceItem(path);
-			if (source == null) return Json.Null();
+			Document document = documents.Get(path);
+			if (document == null) return Json.Null();
 
 			// Get symbol data
-			app.mBfBuildSystem.Lock(0);
-			defer app.mBfBuildSystem.Unlock();
-
-			Document document = documents.Get(path);
-
 			int cursor = document.GetPosition(args);
-
-			String symbolData = GetCompilerData(document, .SymbolInfo, cursor, .. scope .());
+			String symbolData = document.GetCompilerData(.SymbolInfo, cursor, .. scope .());
 
 			// Get references data
+			LspApp.APP.LockSystem!();
+
 			BfParser parser = scope .(null);
 
 			BfPassInstance pass = app.mBfBuildSystem.CreatePassInstance("GetSymbolReferences");
@@ -1231,21 +1105,12 @@ namespace BeefLsp {
 			// Get path
 			String path = Utils.GetPath!(args).GetValueOrPassthrough!<Json>();
 
-			ProjectSource source = app.FindProjectSourceItem(path);
-			if (source == null) return Json.Null();
-
-			BfParser parser = app.mBfBuildSystem.FindParser(source);
-			if (parser == null) return Json.Null();
+			Document document = documents.Get(path);
+			if (document == null) return Json.Null();
 
 			// Get symbol data
-			app.mBfBuildSystem.Lock(0);
-			defer app.mBfBuildSystem.Unlock();
-
-			Document document = documents.Get(path);
-
 			int cursor = document.GetPosition(args);
-
-			String symbolData = GetCompilerData(document, .SymbolInfo, cursor, .. scope .());
+			String symbolData = document.GetCompilerData(.SymbolInfo, cursor, .. scope .());
 
 			// Parse data
 			if (symbolData.IsEmpty) return Json.Null();
@@ -1269,8 +1134,8 @@ namespace BeefLsp {
 			if (start == -1) return Json.Null();
 
 			// Create json
-			let (startLine, startColumn) = parser.GetLineCharAtIdx(start);
-			let (endLine, endColumn) = parser.GetLineCharAtIdx(end);
+			let (startLine, startColumn) = document.GetLine(start);
+			let (endLine, endColumn) = document.GetLine(end);
 
 			return Range(startLine, startColumn, endLine, endColumn);
 		}
