@@ -2991,32 +2991,35 @@ void BfMethodMatcher::TryDevirtualizeCall(BfTypedValue target, BfTypedValue* ori
 			while (checkTypeInst != NULL)
 			{
 				mModule->PopulateType(checkTypeInst, BfPopulateType_DataAndMethods);
-				for (auto&& iface : checkTypeInst->mInterfaces)
+				if (checkTypeInst->mDefineState >= BfTypeDefineState_DefinedAndMethodsSlotted)
 				{
-					//TODO: Why did we have this check?  This caused Dictionary to not be able to devirtualize
-					//  calls to TKey GetHashCode when TKey was from a user's project...
-					/*if (!checkTypeInst->IsTypeMemberAccessible(iface.mDeclaringType, activeTypeDef))
-						continue;*/
-
-					if (iface.mInterfaceType == mBestMethodTypeInstance)
+					for (auto&& iface : checkTypeInst->mInterfaces)
 					{
-						if (bestIFaceEntry == NULL)
-						{
-							bestIFaceEntry = &iface;
-							continue;
-						}
+						//TODO: Why did we have this check?  This caused Dictionary to not be able to devirtualize
+						//  calls to TKey GetHashCode when TKey was from a user's project...
+						/*if (!checkTypeInst->IsTypeMemberAccessible(iface.mDeclaringType, activeTypeDef))
+							continue;*/
 
-						bool isBetter;
-						bool isWorse;
-						mModule->CompareDeclTypes(NULL, iface.mDeclaringType, bestIFaceEntry->mDeclaringType, isBetter, isWorse);
-						if (isBetter == isWorse)
+						if (iface.mInterfaceType == mBestMethodTypeInstance)
 						{
-							// Failed
-						}
-						else
-						{
-							if (isBetter)
+							if (bestIFaceEntry == NULL)
+							{
 								bestIFaceEntry = &iface;
+								continue;
+							}
+
+							bool isBetter;
+							bool isWorse;
+							mModule->CompareDeclTypes(NULL, iface.mDeclaringType, bestIFaceEntry->mDeclaringType, isBetter, isWorse);
+							if (isBetter == isWorse)
+							{
+								// Failed
+							}
+							else
+							{
+								if (isBetter)
+									bestIFaceEntry = &iface;
+							}
 						}
 					}
 				}
@@ -4019,7 +4022,7 @@ void BfExprEvaluator::GetLiteral(BfAstNode* refNode, const BfVariant& variant)
 	case BfTypeCode_Let:
 		if (mExpectingType != NULL)
 		{
-			mResult = BfTypedValue(mModule->mBfIRBuilder->CreateUndefValue(mModule->mBfIRBuilder->MapType(mExpectingType)), mExpectingType);
+			mResult = BfTypedValue(mModule->mBfIRBuilder->GetUndefConstValue(mModule->mBfIRBuilder->MapType(mExpectingType)), mExpectingType);
 			break;
 		}
 		mModule->Fail("Invalid undef literal", refNode);
@@ -4975,6 +4978,9 @@ BfTypedValue BfExprEvaluator::LoadField(BfAstNode* targetSrc, BfTypedValue targe
 
 	if (fieldDef->mIsVolatile)
 		mIsVolatileReference = true;
+
+	if (fieldInstance->mCustomAttributes != NULL)
+		mModule->CheckErrorAttributes(fieldInstance->mOwner, NULL, fieldInstance, fieldInstance->mCustomAttributes, targetSrc);
 
 	if (isFailurePass)
 	{
@@ -6166,7 +6172,7 @@ void BfExprEvaluator::PerformCallChecks(BfMethodInstance* methodInstance, BfAstN
 {
 	BfCustomAttributes* customAttributes = methodInstance->GetCustomAttributes();
 	if (customAttributes != NULL)
-		mModule->CheckErrorAttributes(methodInstance->GetOwner(), methodInstance, customAttributes, targetSrc);
+		mModule->CheckErrorAttributes(methodInstance->GetOwner(), methodInstance, NULL, customAttributes, targetSrc);
 }
 
 BfTypedValue BfExprEvaluator::CreateCall(BfAstNode* targetSrc, BfMethodInstance* methodInstance, BfIRValue func, bool bypassVirtual, SizedArrayImpl<BfIRValue>& irArgs, BfTypedValue* sret, BfCreateCallFlags callFlags, BfType* origTargetType)
@@ -6483,11 +6489,12 @@ BfTypedValue BfExprEvaluator::CreateCall(BfAstNode* targetSrc, BfMethodInstance*
 		}
 		else if (mModule->mIsComptimeModule)
  		{
-			if (methodInstance->mIsUnspecialized)
-			{
-				doConstReturn = true;
-			}
-			else
+			//TODO: This meant that unspecialized types were not even allowed to have Init methods that called into themselves
+// 			if (methodInstance->mIsUnspecialized)
+// 			{
+// 				doConstReturn = true;
+// 			}
+// 			else
 			{
 				mModule->mCompiler->mCeMachine->QueueMethod(methodInstance, func);
 			}
@@ -15349,7 +15356,7 @@ void BfExprEvaluator::CreateObject(BfObjectCreateExpression* objCreateExpr, BfAs
 				if (unresolvedTypeRef == NULL)
 					unresolvedTypeRef = mModule->ResolveTypeRef(arrayTypeRef->mElementType);
 				if (unresolvedTypeRef == NULL)
-					unresolvedTypeRef = mModule->mContext->mBfObjectType;
+					unresolvedTypeRef = mModule->GetPrimitiveType(BfTypeCode_Var);
 
 				int dimensions = 1;
 
@@ -15433,7 +15440,7 @@ void BfExprEvaluator::CreateObject(BfObjectCreateExpression* objCreateExpr, BfAs
 				if (dimensions > 4)
 					dimensions = 4;
 
-				if (!isRawArrayAlloc)
+				if ((!isRawArrayAlloc) && (!unresolvedTypeRef->IsVar()))
 					arrayType = mModule->CreateArrayType(unresolvedTypeRef, dimensions);
 			}
 
@@ -22390,6 +22397,12 @@ void BfExprEvaluator::PerformUnaryOperation_OnResult(BfExpression* unaryOpExpr, 
 			auto ptrType = mModule->CreatePointerType(mResult.mType);
 			if (mResult.mType->IsValuelessType())
 			{
+				if (!mModule->IsInSpecializedSection())
+				{
+					mModule->Warn(0, StrFormat("Operator '&' results in a sentinel address for zero-sized type '%s'",
+						mModule->TypeToString(mResult.mType).c_str()), opToken);
+				}
+
 				// Sentinel value
 				auto val = mModule->mBfIRBuilder->CreateIntToPtr(mModule->mBfIRBuilder->CreateConst(BfTypeCode_IntPtr, 1), mModule->mBfIRBuilder->MapType(ptrType));
 				mResult = BfTypedValue(val, ptrType);

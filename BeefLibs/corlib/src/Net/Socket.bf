@@ -14,18 +14,6 @@ namespace System.Net
 		public struct HSocket : uint
 		{
 		}
-#else
-		public struct HSocket : uint32
-		{
-		}
-#endif
-
-		[CRepr]
-		public struct TimeVal
-		{
-			public int32 mSec;
-			public int32 mUSec;
-		}
 
 		[CRepr]
 		public struct FDSet
@@ -52,6 +40,60 @@ namespace System.Net
 			}
 		}
 
+        [CRepr]
+        public struct TimeVal
+        {
+        	public int32 mSec;
+        	public int32 mUSec;
+        }
+
+#else
+		public struct HSocket : uint32
+		{
+		}
+
+		[CRepr]
+		public struct FDSet
+		{
+            const uint BITS_PER_MASK = sizeof(uint) * 8;
+            const uint MASK_COUNT = 4096 / sizeof(uint);
+            const uint MAX_ALLOWED_FD = MASK_COUNT * BITS_PER_MASK;
+
+            uint[MASK_COUNT] mSocketBitMasks;
+            uint32 afterLastBit;
+
+            public bool Add(HSocket s) mut
+		    {
+                let fd = (uint32)s;
+
+                if (fd > MAX_ALLOWED_FD)
+                   return false;
+
+                if (fd >= afterLastBit)
+                   afterLastBit = fd + 1;
+
+				mSocketBitMasks[fd / BITS_PER_MASK] |= 1U << (fd & (BITS_PER_MASK - 1));
+				return true;
+			}
+
+			public bool IsSet(HSocket s)
+			{
+                let fd = (uint32)s;
+                if (fd > MAX_ALLOWED_FD)
+                    return false;
+				return (mSocketBitMasks[fd / BITS_PER_MASK] & (1U << (fd & (BITS_PER_MASK - 1)))) != 0;
+			}
+		}
+
+        [CRepr]
+        public struct TimeVal
+        {
+        	public int64 mSec;
+        	public int32 mUSec;
+        }
+#endif
+
+
 #if BF_PLATFORM_WINDOWS
 		[CRepr]
 		struct WSAData
@@ -75,7 +117,7 @@ namespace System.Net
 #endif
 
 		[CRepr]
-		struct in_addr
+		public struct IPv4Address
 		{
 			public uint8 b1;
 			public uint8 b2;
@@ -102,7 +144,7 @@ namespace System.Net
         {
 	        public int16 sin_family;
 	        public uint16 sin_port;
-	        public in_addr sin_addr;
+	        public IPv4Address sin_addr;
 	        public char8[8] sin_zero;
 		}
 
@@ -223,7 +265,7 @@ namespace System.Net
 #endif
 
 		[CLink, CallingConvention(.Stdcall)]
-		static extern int32 select(int nfds, FDSet* readFDS, FDSet* writeFDS, FDSet* exceptFDS, TimeVal* timeVal);
+		static extern int32 select(int32 nfds, FDSet* readFDS, FDSet* writeFDS, FDSet* exceptFDS, TimeVal* timeVal);
 
 		[CLink, CallingConvention(.Stdcall)]
 		static extern int32 recv(HSocket s, void* ptr, int32 len, int32 flags);
@@ -297,7 +339,12 @@ namespace System.Net
 			SetBlocking(mIsBlocking);
 		}
 
-		public Result<void> Listen(int32 port, int32 backlog = 5)
+        public Result<void> Listen(int32 port, int32 backlog = 5)
+        {
+            return Listen(.(127, 0, 0, 1), port, backlog);
+        }
+
+		public Result<void> Listen(IPv4Address address, int32 port, int32 backlog = 5)
 		{
 			Debug.Assert(mHandle == INVALID_SOCKET);
 
@@ -314,7 +361,7 @@ namespace System.Net
 
 			SockAddr_in service;
 			service.sin_family = AF_INET;
-			service.sin_addr = in_addr(127, 0, 0, 1);
+			service.sin_addr = address;
 			service.sin_port = (uint16)htons((int16)port);
 
 			if (bind(mHandle, &service, sizeof(SockAddr_in)) == SOCKET_ERROR)
@@ -346,7 +393,7 @@ namespace System.Net
 
 			SockAddr_in sockAddr;
 			sockAddr.sin_family = AF_INET;
-			Internal.MemCpy(&sockAddr.sin_addr, hostEnt.h_addr_list[0], sizeof(in_addr));
+			Internal.MemCpy(&sockAddr.sin_addr, hostEnt.h_addr_list[0], sizeof(IPv4Address));
 			sockAddr.sin_port = (uint16)htons((int16)port);
 
 			if (connect(mHandle, &sockAddr, sizeof(SockAddr_in)) == SOCKET_ERROR)
@@ -387,7 +434,8 @@ namespace System.Net
 			TimeVal timeVal;
 			timeVal.mSec = (.)(waitTimeMS / 1000);
 			timeVal.mUSec = (.)((waitTimeMS % 1000) * 1000);
-			return select(0, readFDS, writeFDS, exceptFDS, &timeVal);
+
+			return Select(readFDS, writeFDS, exceptFDS, &timeVal);
 		}
 
 		public static int32 Select(FDSet* readFDS, FDSet* writeFDS, FDSet* exceptFDS, float waitTimeMS)
@@ -396,7 +444,24 @@ namespace System.Net
 			TimeVal timeVal;
 			timeVal.mSec = (.)(waitTimeUS / (1000*1000));
 			timeVal.mUSec = (.)(waitTimeUS % (1000*1000));
-			return select(0, readFDS, writeFDS, exceptFDS, &timeVal);
+
+			return Select(readFDS, writeFDS, exceptFDS, &timeVal);
+		}
+
+		private static int32 Select(FDSet* readFDS, FDSet* writeFDS, FDSet* exceptFDS, TimeVal* timeVal)
+		{
+#if BF_PLATFORM_WINDOWS
+            const int32 nfds = 0; // Ignored
+#else
+            int32 nfds = 0;
+            if (readFDS != null)
+                nfds = (.)readFDS.[Friend]afterLastBit;
+            if (writeFDS != null)
+                nfds = Math.Max(nfds, (.)writeFDS.[Friend]afterLastBit);
+            if (exceptFDS != null)
+                nfds = Math.Max(nfds, (.)exceptFDS.[Friend]afterLastBit);
+#endif
+			return select(nfds, readFDS, writeFDS, exceptFDS, timeVal);
 		}
 
 		public int32 DbgRecv(void* ptr, int32 size)
@@ -467,4 +532,3 @@ namespace System.Net
 		}
 	}
 }
-

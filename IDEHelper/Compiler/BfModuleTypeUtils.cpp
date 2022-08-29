@@ -2544,19 +2544,24 @@ void BfModule::HandleCEAttributes(CeEmitContext* ceEmitContext, BfTypeInstance* 
 					}
 				}
 			}
-			else if (ceEmitContext->HasEmissions())
+			else
 			{
-				if (typeInstance->mCeTypeInfo == NULL)
-					typeInstance->mCeTypeInfo = new BfCeTypeInfo();
-				if (typeInstance->mCeTypeInfo->mNext == NULL)
-					typeInstance->mCeTypeInfo->mNext = new BfCeTypeInfo();
+				if (ceEmitContext->HasEmissions())
+				{
+					if (typeInstance->mCeTypeInfo == NULL)
+						typeInstance->mCeTypeInfo = new BfCeTypeInfo();
+					if (typeInstance->mCeTypeInfo->mNext == NULL)
+						typeInstance->mCeTypeInfo->mNext = new BfCeTypeInfo();
 
-				BfCeTypeEmitEntry entry;
-				entry.mEmitData = ceEmitContext->mEmitData;
-				typeInstance->mCeTypeInfo->mNext->mTypeIFaceMap[typeId] = entry;
+					BfCeTypeEmitEntry entry;
+					entry.mEmitData = ceEmitContext->mEmitData;
+					typeInstance->mCeTypeInfo->mNext->mTypeIFaceMap[typeId] = entry;
+					typeInstance->mCeTypeInfo->mNext->mAlign = BF_MAX(typeInstance->mCeTypeInfo->mNext->mAlign, ceEmitContext->mAlign);
+				}
+
+				if ((ceEmitContext->mFailed) && (typeInstance->mCeTypeInfo != NULL))
+					typeInstance->mCeTypeInfo->mFailed = true;
 			}
-			else if ((ceEmitContext->mFailed) && (typeInstance->mCeTypeInfo != NULL))
-				typeInstance->mCeTypeInfo->mFailed = true;
 
 			if ((ceEmitContext->HasEmissions()) && (!mCompiler->mFastFinish))
 			{
@@ -4489,42 +4494,45 @@ void BfModule::DoPopulateType(BfType* resolvedTypeRef, BfPopulateType populateTy
 			return;
 	}
 
-	if ((mCompiler->mOptions.mAllowHotSwapping) &&
-		(typeInstance->mDefineState < BfTypeDefineState_HasInterfaces_Direct) &&
-		(typeInstance->mDefineState != BfTypeDefineState_ResolvingBaseType))
+	if (mCompiler->mOptions.mAllowHotSwapping)
 	{
-		if (typeInstance->mHotTypeData == NULL)
+		if (typeInstance->mDefineState < BfTypeDefineState_HasInterfaces_Direct)
 		{
-			typeInstance->mHotTypeData = new BfHotTypeData();
-			BfLogSysM("Created HotTypeData %p created for type %p in DoPopulateType\n", typeInstance->mHotTypeData, typeInstance);
+			if (typeInstance->mHotTypeData == NULL)
+			{
+				typeInstance->mHotTypeData = new BfHotTypeData();
+				BfLogSysM("Created HotTypeData %p created for type %p in DoPopulateType\n", typeInstance->mHotTypeData, typeInstance);
+			}
+
+			// Clear any unused versions (if we have errors, etc)
+			if (mCompiler->mHotState != NULL)
+				typeInstance->mHotTypeData->ClearVersionsAfter(mCompiler->mHotState->mCommittedHotCompileIdx);
+			else
+				BF_ASSERT(typeInstance->mHotTypeData->mTypeVersions.IsEmpty()); // We should have created a new HotTypeData when rebuilding the type
+
+			BfHotTypeVersion* hotTypeVersion = new BfHotTypeVersion();
+			hotTypeVersion->mTypeId = typeInstance->mTypeId;
+			hotTypeVersion->mDeclHotCompileIdx = mCompiler->mOptions.mHotCompileIdx;
+			if (mCompiler->IsHotCompile())
+				hotTypeVersion->mCommittedHotCompileIdx = -1;
+			else
+				hotTypeVersion->mCommittedHotCompileIdx = 0;
+			hotTypeVersion->mRefCount++;
+			typeInstance->mHotTypeData->mTypeVersions.Add(hotTypeVersion);
+
+			BfLogSysM("BfHotTypeVersion %p created for type %p\n", hotTypeVersion, typeInstance);
 		}
 
-		// Clear any unused versions (if we have errors, etc)
-		if (mCompiler->mHotState != NULL)
-			typeInstance->mHotTypeData->ClearVersionsAfter(mCompiler->mHotState->mCommittedHotCompileIdx);
-		else
-			BF_ASSERT(typeInstance->mHotTypeData->mTypeVersions.IsEmpty()); // We should have created a new HotTypeData when rebuilding the type
-
-		BfHotTypeVersion* hotTypeVersion = new BfHotTypeVersion();
-		hotTypeVersion->mTypeId = typeInstance->mTypeId;
+		auto hotTypeVersion = typeInstance->mHotTypeData->mTypeVersions.back();
 		if (typeInstance->mBaseType != NULL)
 		{
 			if (typeInstance->mBaseType->mHotTypeData != NULL)
 				hotTypeVersion->mBaseType = typeInstance->mBaseType->mHotTypeData->GetLatestVersion();
-			else
+			else if (populateType >= BfPopulateType_Interfaces_All)
 			{
 				AssertErrorState();
 			}
 		}
-		hotTypeVersion->mDeclHotCompileIdx = mCompiler->mOptions.mHotCompileIdx;
-		if (mCompiler->IsHotCompile())
-			hotTypeVersion->mCommittedHotCompileIdx = -1;
-		else
-			hotTypeVersion->mCommittedHotCompileIdx = 0;
-		hotTypeVersion->mRefCount++;
-		typeInstance->mHotTypeData->mTypeVersions.Add(hotTypeVersion);
-
-		BfLogSysM("BfHotTypeVersion %p created for type %p\n", hotTypeVersion, typeInstance);
 	}
 
 	BF_ASSERT(!typeInstance->mNeedsMethodProcessing);
@@ -5085,6 +5093,7 @@ void BfModule::DoPopulateType(BfType* resolvedTypeRef, BfPopulateType populateTy
 						typeInstance->mCeTypeInfo->mOnCompileMap = typeInstance->mCeTypeInfo->mNext->mOnCompileMap;
 						typeInstance->mCeTypeInfo->mTypeIFaceMap = typeInstance->mCeTypeInfo->mNext->mTypeIFaceMap;
 						typeInstance->mCeTypeInfo->mHash = typeInstance->mCeTypeInfo->mNext->mHash;
+						typeInstance->mCeTypeInfo->mAlign = typeInstance->mCeTypeInfo->mNext->mAlign;
 					}
 
 					delete typeInstance->mCeTypeInfo->mNext;
@@ -5110,8 +5119,11 @@ void BfModule::DoPopulateType(BfType* resolvedTypeRef, BfPopulateType populateTy
 				typeInstance->mCeTypeInfo->mFailed = false;
 			}
 
-			if ((typeInstance->mCeTypeInfo != NULL) && (!typeInstance->mCeTypeInfo->mPendingInterfaces.IsEmpty()))
-				hadNewMembers = true;
+			if (typeInstance->mCeTypeInfo != NULL)
+			{
+				if (!typeInstance->mCeTypeInfo->mPendingInterfaces.IsEmpty())
+					hadNewMembers = true;
+			}
 
 			if ((typeInstance->mTypeDef->IsEmitted()) && (typeInstance->mCeTypeInfo == NULL))
 			{
@@ -5592,6 +5604,11 @@ void BfModule::DoPopulateType(BfType* resolvedTypeRef, BfPopulateType populateTy
 		}
 
 		bool needsExplicitAlignment = true;
+
+		if (typeInstance->mCeTypeInfo != NULL)
+		{
+			typeInstance->mInstAlign = BF_MAX(typeInstance->mInstAlign, typeInstance->mCeTypeInfo->mAlign);
+		}
 
 		for (int fieldIdx = 0; fieldIdx < (int)dataFieldVec.size(); fieldIdx++)
 		{
@@ -9800,7 +9817,7 @@ BfType* BfModule::ResolveTypeResult(BfTypeReference* typeRef, BfType* resolvedTy
 			if (resolvedTypeRef->mDefineState == BfTypeDefineState_Undefined)
 				PopulateType(resolvedTypeRef);
 			if ((typeInstance->mCustomAttributes != NULL) && (!typeRef->IsTemporary()))
-				CheckErrorAttributes(typeInstance, NULL, typeInstance->mCustomAttributes, typeRef);
+				CheckErrorAttributes(typeInstance, NULL, NULL, typeInstance->mCustomAttributes, typeRef);
 			resolvedTypeRef = resolvedTypeRef->GetUnderlyingType();
 			if (resolvedTypeRef != NULL)
 				typeInstance = resolvedTypeRef->ToTypeInstance();
@@ -9814,7 +9831,7 @@ BfType* BfModule::ResolveTypeResult(BfTypeReference* typeRef, BfType* resolvedTy
 		if ((!typeRef->IsTemporary()) && ((resolveFlags & BfResolveTypeRefFlag_FromIndirectSource) == 0))
 		{
 			if (typeInstance->mCustomAttributes != NULL)
-				CheckErrorAttributes(typeInstance, NULL, typeInstance->mCustomAttributes, typeRef);
+				CheckErrorAttributes(typeInstance, NULL, NULL, typeInstance->mCustomAttributes, typeRef);
 			else if ((typeInstance->mTypeDef->mTypeDeclaration != NULL) && (typeInstance->mTypeDef->mTypeDeclaration->mAttributes != NULL))
 			{
 				auto typeRefVerifyRequest = mContext->mTypeRefVerifyWorkList.Alloc();
@@ -15825,3 +15842,5 @@ void BfModule::DoTypeToString(StringImpl& str, BfType* resolvedType, BfTypeNameF
 	str += "???";
 	return;
 }
+
+

@@ -292,7 +292,15 @@ namespace System
 				Runtime.FatalError("Assert failed");
 		}
 
+		[Comptime(ConstEval = true)]
+		public static void Assert(bool cond, String message)
+		{
+		    if (!cond)
+		        Runtime.FatalError(message);
+		}
+
 		static extern void Comptime_SetReturnType(int32 typeId);
+		static extern void Comptime_Align(int32 typeId, int32 align);
 		static extern void* Comptime_MethodBuilder_EmitStr(void* native, StringView str);
 		static extern void* Comptime_CreateMethod(int32 typeId, StringView methodName, Type returnType, MethodFlags methodFlags);
 		static extern void Comptime_EmitTypeBody(int32 typeId, StringView text);
@@ -319,6 +327,12 @@ namespace System
 		public static void SetReturnType(Type type)
 		{
 			Comptime_SetReturnType((.)type.TypeId);
+		}
+
+		[Comptime(OnlyFromComptime=true)]
+		public static void Align(Type type, int align)
+		{
+			Comptime_Align((.)type.TypeId, (.)align);
 		}
 
 		[Comptime(OnlyFromComptime=true)]
