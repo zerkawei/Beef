@@ -14,6 +14,7 @@ namespace BeefLsp {
 		public static LspApp APP;
 
 		public BfCompiler compiler ~ delete _;
+		public LspFileWatcher fileWatcher  = new .() ~ delete _;
 
 		public override void Init()	{
 			if (mConfigName.IsEmpty) mConfigName.Set("Debug");
@@ -51,6 +52,11 @@ namespace BeefLsp {
 
 			for (let project in mWorkspace.mProjects) {
 				IDEUtils.FixFilePath(project.mProjectDir);
+
+				if (!fileWatcher.Watch(project.mProjectDir)) {
+					Log.Error("Failed to watch project for file changes.");
+					return;
+				}
 			}
 
 			Log.Info("Loaded workspace at {}", path);

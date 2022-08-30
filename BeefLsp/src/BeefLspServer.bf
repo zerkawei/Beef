@@ -16,6 +16,7 @@ namespace BeefLsp {
 
 		public void Start(String[] args) {
 			app.Init();
+			app.fileWatcher.parseCallback = new => PublishDiagnostics;
 
 			int port = -1;
 
@@ -150,21 +151,14 @@ namespace BeefLsp {
 			DeleteDictionaryAndKeysAndValues!(files);
 		}
 
-		private BfParser GetParser(String path) {
-			ProjectSource source = app.FindProjectSourceItem(path);
-			if (source == null) return null;
-
-			return app.mBfBuildSystem.FindParser(source);
-		}
-
 		private Json? GetDiagnostic(BfPassInstance.BfError error) {
-			BfParser parser = GetParser(error.mFilePath);
-			if (parser == null) return null;
+			Document document = documents.Get(error.mFilePath);
+			if (document == null) return null;
 
 			Json json = .Object();
 
-			let (startLine, startColumn) = parser.GetLineCharAtIdx(error.mSrcStart);
-			let (endLine, endColumn) = parser.GetLineCharAtIdx(error.mSrcEnd);
+			let (startLine, startColumn) = document.GetLine(error.mSrcStart);
+			let (endLine, endColumn) = document.GetLine(error.mSrcEnd);
 
 			json["range"] = Range(startLine, startColumn, endLine, endColumn);
 			json["severity"] = .Number(error.mIsWarning ? 2 : 1);

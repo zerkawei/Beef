@@ -103,5 +103,76 @@ namespace IDE {
 			mBfBuildSystem.Lock(0);
 			defer:mixin mBfBuildSystem.Unlock();
 		}
+
+		public ProjectFolder FindProjectFolder(ProjectFolder projectFolder, String relPath)
+		{
+			if (String.Equals(projectFolder.mPath, relPath, Environment.IsFileSystemCaseSensitive ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase))
+				return projectFolder;
+
+		    for (var childItem in projectFolder.mChildItems)
+		    {
+		        ProjectFolder childFolder = childItem as ProjectFolder;
+		        if (childFolder != null)
+		        {
+		            ProjectFolder projectItem = FindProjectFolder(childFolder, relPath);
+		            if (projectItem != null)
+		                return projectItem;
+		        }
+		    }
+		    return null;
+		}
+
+		public ProjectFolder FindProjectFolder(String filePath)
+		{
+		    for (var project in mWorkspace.mProjects)
+		    {
+		        String relPath = scope String();
+		        project.GetProjectRelPath(filePath, relPath);
+
+		        var projectItem = FindProjectFolder(project.mRootFolder, relPath);
+		        if (projectItem != null)
+		            return projectItem;
+		    }
+		    return null;
+		}
+
+		public ProjectFileItem FindProjectFileItem(ProjectFolder projectFolder, String relPath)
+		{
+			if (String.Equals(projectFolder.mPath, relPath, Environment.IsFileSystemCaseSensitive ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase))
+				return projectFolder;
+
+		    for (var childItem in projectFolder.mChildItems)
+		    {
+		        ProjectFileItem projectSource = childItem as ProjectFileItem;
+				if (projectSource != null)
+				{
+				    if (String.Equals(projectSource.mPath, relPath, Environment.IsFileSystemCaseSensitive ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase))
+				        return projectSource;
+				}
+
+				ProjectFolder childFolder = childItem as ProjectFolder;
+				if (childFolder != null)
+				{
+				    projectSource = FindProjectItem(childFolder, relPath);
+				    if (projectSource != null)
+				        return projectSource;
+				}
+		    }
+		    return null;
+		}
+
+		public ProjectFileItem FindProjectFileItem(String filePath)
+		{
+		    for (var project in mWorkspace.mProjects)
+		    {
+		        String relPath = scope String();
+		        project.GetProjectRelPath(filePath, relPath);
+
+		        var projectItem = FindProjectFileItem(project.mRootFolder, relPath);
+		        if (projectItem != null)
+		            return projectItem;
+		    }
+		    return null;
+		}
 	}
 }
