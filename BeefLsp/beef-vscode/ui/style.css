@@ -1,0 +1,35 @@
+* {
+    font-family: var(--vscode-editor-font-family);
+    font-size: var(--vscode-editor-font-size);
+    font-weight: var(--vscode-editor-font-weight);
+}
+
+/* Dropdown */
+
+select {
+    background-color: var(--vscode-dropdown-background);
+    color: var(--vscode-dropdown-foreground);
+    border: 1px solid var(--vscode-dropdown-border);
+    padding: 2px 8px;
+}
+
+select::after {
+    content: "\eab4";
+}
+
+select:focus {
+    outline: none;
+}
+
+/* Textbox */
+
+input {
+    background-color: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-input-border);
+    padding: 4px;
+}
+
+input:focus {
+    outline: none;
+}

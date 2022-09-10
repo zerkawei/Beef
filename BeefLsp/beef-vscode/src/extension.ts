@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import * as net from "net";
 import { LanguageClient, LanguageClientOptions, ServerOptions, StreamInfo } from "vscode-languageclient/node";
-import { WorkspaceEditorProvider } from "./workspaceEditor";
+import { register } from "./workspaceSettings";
 
 let barItem: vscode.StatusBarItem;
 let client: LanguageClient;
@@ -47,7 +47,7 @@ export function activate(context: vscode.ExtensionContext) {
 	
 	client.start();
 
-	context.subscriptions.push(WorkspaceEditorProvider.register(context));
+	register(context);
 
 	client.onReady().then(onReady);
 }

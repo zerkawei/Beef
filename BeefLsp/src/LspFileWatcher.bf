@@ -40,45 +40,35 @@ class LspFileWatcher {
 	}
 
 	private void OnDeleted(String path) {
-		if (!path.EndsWith(".bf")) return;
-
-		// Get parent folder
-		String parentPath = Path.GetDirectoryPath(path, .. scope .());
-
-		ProjectFolder parentFolder = LspApp.APP.FindProjectFolder(parentPath);
-		if (parentFolder == null) return;
-
-		// Get item being deleted
-		ProjectSource item = LspApp.APP.FindProjectSourceItem(path);
+		ProjectFileItem item = LspApp.APP.FindProjectFileItem(path);
 		if (item == null) return;
 
-		// Delete item
-		parentFolder.RemoveChild(item);
-		delete LspApp.APP.mBfBuildSystem.FileRemoved(item);
-		LspApp.APP.mBfBuildSystem.RemoveDeletedParsers();
-		item.ReleaseLastRef();
-
-		// Delete folder if empty
-		// TODO: Deleting the folder causes Attempted to access deleted object error because the mChildItems list is deleted sooner than it is iterated over to remove file watchers
-		//DeleteFolderIfEmpty(parentFolder);
-		
-		// Parse workspace and report errors
-		Parse();
+		DeleteItem(item);
 	}
 
-	private void DeleteFolderIfEmpty(ProjectFolder folder) {
-		// Check if empty
-		if (!folder.mChildItems.IsEmpty) return;
-		
-		// Remove from parent
-		ProjectFolder parent = folder.mParentFolder;
-		parent.RemoveChild(folder);
+	private void DeleteItem(ProjectItem item) {
+		// Delete folder
+		if (item is ProjectFolder) {
+			ProjectFolder folder = (.) item;
 
-		// Delete parent if empty
-		DeleteFolderIfEmpty(parent);
+			for (let childItem in folder.mChildItems) DeleteItem(childItem);
 
-		// Release last reference
-		folder.ReleaseLastRef();
+			folder.mParentFolder.RemoveChild(folder);
+			folder.ReleaseLastRef();
+		}
+		// Delete item
+		else {
+			item.mParentFolder.RemoveChild(item);
+
+			if (item is ProjectSource) {
+				delete LspApp.APP.mBfBuildSystem.FileRemoved((.) item);
+				LspApp.APP.mBfBuildSystem.RemoveDeletedParsers();
+
+				Parse();
+			}
+
+			item.ReleaseLastRef();
+		}
 	}
 
 	private void OnRenamed(String newPath, String oldPath) {

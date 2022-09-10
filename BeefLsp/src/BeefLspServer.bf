@@ -250,7 +250,7 @@ namespace BeefLsp {
 			// Parse data to json
 			Json ranges = .Array();
 
-			for (var line in Lines(collapseData)) {
+			for (var line in Utils.Lines(collapseData)) {
 				let original = line;
 
 				// Parse folding range
@@ -305,7 +305,7 @@ namespace BeefLsp {
 			int start = -1;
 			int end = -1;
 
-			for (let line in Lines(completionData)) {
+			for (let line in Utils.Lines(completionData)) {
 				// Parse completion item
 				var it = line.Split('\t');
 				StringView type = it.GetNext().Value;
@@ -394,7 +394,7 @@ namespace BeefLsp {
 
 			StringView detail = "";
 
-			for (let line in Lines(completionData)) {
+			for (let line in Utils.Lines(completionData)) {
 				if (line.StartsWith("class") || line.StartsWith("valuetype")) {
 					StringView doc = line.Substring(line.IndexOf('\x03') + 1);
 					detail = doc.Substring(doc.IndexOf(' ') + 1);
@@ -425,28 +425,25 @@ namespace BeefLsp {
 				if (!detail.IsEmpty) break;
 			}
 
-			detail: if (!detail.IsEmpty) {
+			if (!detail.IsEmpty) {
+				// Documentation
 				int docI = detail.IndexOf('\x05');
-				String documentation = null;
 
 				if (docI != -1) {
-					documentation = scope:detail .();
-					for (let line in detail.Substring(docI + 1).Split('\x03', .RemoveEmptyEntries)) {
-						StringView str = line;
-
-						str.Trim();
-						if (str.StartsWith("///")) str = str[3...];
-						str.Trim();
-
-						documentation.Append(str);
-						if (@line.HasMore) documentation.Append('\n');
-					}
-
+					String docs = Utils.CleanDocumentation(detail.Substring(docI + 1), .. scope:: .());
 					detail = detail[0...docI - 1];
+
+					Documentation documentation = scope .();
+					documentation.Parse(docs);
+
+					Json contents = .Object();
+					json["documentation"] = contents;
+					contents["kind"] = .String("markdown");
+					contents["value"] = .String(documentation.ToString("", true, .. scope .()));
 				}
 
+				// Detail
 				json["detail"] = .String(detail);
-				if (documentation != null) json["documentation"] = .String(documentation);
 			}
 
 			return json;
@@ -478,7 +475,7 @@ namespace BeefLsp {
 			// Parse data
 			List<Symbol> symbols = scope .();
 
-			for (let lineStr in Lines(navigationData)) {
+			for (let lineStr in Utils.Lines(navigationData)) {
 				// Parse symbol
 				var it = lineStr.Split('\t');
 
@@ -630,7 +627,7 @@ namespace BeefLsp {
 
 			defer signatures.ClearAndDeleteItems();
 
-			loop: for (let line in Lines(signatureData)) {
+			loop: for (let line in Utils.Lines(signatureData)) {
 				var it = line.Split('\t', .RemoveEmptyEntries);
 
 				StringView type = it.GetNext().Value;
@@ -638,18 +635,7 @@ namespace BeefLsp {
 
 				if (it.HasMore) {
 					String str = scope:loop .(data);
-					if (str.EndsWith('\x03')) {
-						str.RemoveFromEnd(1);
-						str.Append('\n');
-					}
-
-					for (let more in it) {
-						let x03 = more.EndsWith('\x03');
-
-						str.Append(x03 ? more[...^2] : more);
-						str.Append('\n');
-					}
-
+					for (let more in it) str.Append(more);
 					data = str;
 				}
 
@@ -689,18 +675,27 @@ namespace BeefLsp {
 				jsonSignatures.Add(jsonSignature);
 
 				StringView label = scope String(signature)..Replace("\x01", "");
-				StringView documentation = "";
 
-				int documentationIndex = label.IndexOf('\x03');
-				if (documentationIndex != -1) {
-					documentation = ParseDocumentation(label.Substring(documentationIndex + 1), .. scope:loop .());
-					label = label[0...documentationIndex - 1];
+				// Documentation
+				int docI = label.IndexOf('\x03');
+				Documentation documentation = scope .();
 
+				if (docI != -1) {
+					String docs = Utils.CleanDocumentation(label.Substring(docI + 1), .. scope:loop .());
+					label = label[0...docI - 1];
+					
+					documentation.Parse(docs);
+
+					Json contents = .Object();
+					jsonSignature["documentation"] = contents;
+					contents["kind"] = .String("markdown");
+					contents["value"] = .String(documentation.ToString("", true, .. scope .()));
 				}
 
+				// Label
 				jsonSignature["label"] = .String(label);
-				if (!documentation.IsEmpty) jsonSignature["documentation"] = .String(documentation);
 
+				// Parameters
 				Json jsonParameters = .Array();
 				jsonSignature["parameters"] = jsonParameters;
 
@@ -708,6 +703,20 @@ namespace BeefLsp {
 					Json jsonParameter = .Object();
 					jsonParameters.Add(jsonParameter);
 
+					// Documentation
+					StringView name = parameter.Substring(parameter.LastIndexOf(' ') + 1);
+					if (name.EndsWith(',')) name.Length--;
+
+					StringView doc = documentation.ToStringParameter(name, true, .. scope .());
+
+					if (!doc.IsEmpty) {
+						Json contents = .Object();
+						jsonParameter["documentation"] = contents;
+						contents["kind"] = .String("markdown");
+						contents["value"] = .String(doc);
+					}
+
+					// Label
 					jsonParameter["label"] = .String(parameter);
 				}
 			}
@@ -716,34 +725,6 @@ namespace BeefLsp {
 			json["activeParameter"] = .Number(activeParameter);
 
 			return json;
-		}
-
-		private void ParseDocumentation(StringView documentation, String buffer) {
-			for (let line in Lines(documentation)) {
-				buffer.Append(line[3...]..TrimStart());
-				if (@line.HasMore) buffer.Append('\n');
-			}
-		}
-
-		private LineEnumerator Lines(StringView string) {
-			return .(string.Split('\n', .RemoveEmptyEntries));
-		}
-
-		struct LineEnumerator : IEnumerator<StringView> {
-			private StringSplitEnumerator enumerator;
-
-			public this(StringSplitEnumerator enumerator) {
-				this.enumerator = enumerator;
-			}
-
-			public bool HasMore => enumerator.HasMore;
-
-			public Result<StringView> GetNext() mut {
-				switch (enumerator.GetNext()) {
-				case .Ok(let val): return val.EndsWith('\r') ? val[...^2] : val;
-				case .Err:         return .Err;
-				}
-			}
 		}
 
 		private Result<Json, Error> OnHover(Json args) {
@@ -760,28 +741,19 @@ namespace BeefLsp {
 			// Parse data
 			if (hoverData.IsEmpty) return Json.Null();
 
-			StringView hover = Lines(hoverData).GetNext().Value;
+			StringView hover = Utils.Lines(hoverData).GetNext().Value;
 			if (!hover.StartsWith(':')) return Json.Null();
 
 			hover.Adjust(1);
 			if (hover.StartsWith("class ")) hover.Adjust(6);
 
 			int documentationIndex = hover.IndexOf('\x03');
-			StringView documentation = "";
+			Documentation documentation = scope .();
 
 			if (documentationIndex != -1) {
-				String docs = scope .();
+				String docs = Utils.CleanDocumentation(hover.Substring(documentationIndex + 1), .. scope:: .());
+				documentation.Parse(docs);
 
-				for (let line in hover.Substring(documentationIndex + 1).Split('\t', .RemoveEmptyEntries)) {
-					int a = 1;
-					if (line.EndsWith('\x03')) a++;
-					if (line.EndsWith("\r\x03")) a++;
-
-					docs.Append(line[...^a]);
-					docs.Append("  \n");
-				}
-
-				documentation = ParseDocumentation(docs, .. scope:: .());
 				hover = hover[0...documentationIndex - 1];
 			}
 
@@ -791,7 +763,7 @@ namespace BeefLsp {
 			Json contents = .Object();
 			json["contents"] = contents;
 			contents["kind"] = .String("markdown");
-			contents["value"] = .String(documentation.IsEmpty ? hover : scope $"{hover}  \n  \n{documentation}");
+			contents["value"] = .String(documentation.ToString(hover, true, .. scope .()));
 
 			return json;
 		}
@@ -812,7 +784,7 @@ namespace BeefLsp {
 			int line = 0;
 			int column = 0;
 
-			for (let data in Lines(definitionData)) {
+			for (let data in Utils.Lines(definitionData)) {
 				var it = data.Split('\t', .RemoveEmptyEntries);
 
 				StringView type = it.GetNext().Value;
@@ -867,7 +839,7 @@ namespace BeefLsp {
 
 			Json references = .Array();
 
-			for (let line in Lines(referencesData)) {
+			for (let line in Utils.Lines(referencesData)) {
 				var it = line.Split('\t', .RemoveEmptyEntries);
 
 				StringView file = it.GetNext().Value;
@@ -901,7 +873,7 @@ namespace BeefLsp {
 		private void ParseSymbolData(String data, BfResolvePassData passData) {
 			bool typeDef = false;
 
-			for (let line in Lines(data)) {
+			for (let line in Utils.Lines(data)) {
 				var lineDataItr = line.Split('\t');
 				var dataType = lineDataItr.GetNext().Get();
 
@@ -947,7 +919,7 @@ namespace BeefLsp {
 			// Parse data and create json
 			Json symbols = .Array();
 
-			for (let line in Lines(symbolData)) {
+			for (let line in Utils.Lines(symbolData)) {
 				var it = line.Split('\t', .RemoveEmptyEntries);
 
 				StringView name = it.GetNext().Value;
@@ -1058,7 +1030,7 @@ namespace BeefLsp {
 			Json changes = .Object();
 			workspaceEdit["changes"] = changes;
 
-			for (let line in Lines(referencesData)) {
+			for (let line in Utils.Lines(referencesData)) {
 				var it = line.Split('\t', .RemoveEmptyEntries);
 
 				StringView file = it.GetNext().Value;
@@ -1112,7 +1084,7 @@ namespace BeefLsp {
 			int start = -1;
 			int end = -1;
 
-			for (let line in Lines(symbolData)) {
+			for (let line in Utils.Lines(symbolData)) {
 				if (line.StartsWith("insertRange")) {
 					StringView data = line[12...];
 					int spaceI = data.IndexOf(' ');
@@ -1132,6 +1104,14 @@ namespace BeefLsp {
 			let (endLine, endColumn) = document.GetLine(end);
 
 			return Range(startLine, startColumn, endLine, endColumn);
+		}
+
+		private Result<Json, Error> OnWorkspaceSettings() {
+			Json json = .Object();
+
+
+			
+			return json;
 		}
 
 		private Result<Json, Error> OnShutdown() {
@@ -1172,6 +1152,8 @@ namespace BeefLsp {
 			case "textDocument/prepareRename":  HandleRequest(json, OnPrepareRename(args));
 
 			case "workspace/symbol":            HandleRequest(json, OnWorkspaceSymbol(args));
+
+			case "beef/workspaceSettings":      HandleRequest(json, OnWorkspaceSettings());
 			}
 		}
 
