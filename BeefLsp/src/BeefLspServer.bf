@@ -101,6 +101,7 @@ namespace BeefLsp {
 			cap["definitionProvider"] = .Bool(true);
 			cap["referencesProvider"] = .Bool(true);
 			cap["workspaceSymbolProvider"] = .Bool(true);
+			cap["documentFormattingProvider"] = .Bool(true);
 
 			Json renameProvider = .Object();
 			cap["renameProvider"] = renameProvider;
@@ -1320,6 +1321,29 @@ namespace BeefLsp {
 			buffer.Append(']');
 		}
 
+		private Result<Json, Error> OnFormatting(Json args) {
+			// Get path
+			String path = Utils.GetPath!(args).GetValueOrPassthrough!<Json>();
+
+			Document document = documents.Get(path);
+			if (document == null) return Json.Null();
+
+			// Format
+			int32* charMappingPtr;
+			char8* text = BfParser.[Friend]BfParser_Format(document.[Friend]parser.mNativeBfParser, 0, (.) document.contents.Length, out charMappingPtr, 0, (.) args["options"]["tabSize"].AsNumber, args["options"]["insertSpaces"].AsBool, false);
+
+			// Create json
+			Json json = .Array();
+
+			Json editJson = .Object();
+			json.Add(editJson);
+
+			editJson["range"] = Range(0, 0, 1000000, 0); // TODO: Seems to work in VS Code, I don't know about others
+			editJson["newText"] = .String(.(text));
+			
+			return json;
+		}
+
 		private Result<Json, Error> OnChangeConfiguration(Json args) {
 			StringView configuration = args["configuration"].AsString;
 
@@ -1351,6 +1375,15 @@ namespace BeefLsp {
 			json["configuration"] = .String(app.mConfigName);
 
 			return json;
+		}
+
+		private Result<Json, Error> OnBuild() {
+			app.[Friend]Compile(.Normal, null);
+			app.mBfBuildCompiler.ProcessQueue();
+
+			app.[Friend]mExecutionQueue.Clear();
+
+			return Json.Null();
 		}
 
 		private Result<Json, Error> OnWorkspaceSettings() {
@@ -1400,10 +1433,12 @@ namespace BeefLsp {
 			case "textDocument/rename":               HandleRequest(json, OnRename(args));
 			case "textDocument/prepareRename":        HandleRequest(json, OnPrepareRename(args));
 			case "textDocument/semanticTokens/full":  HandleRequest(json, OnSemanticTokensFull(args));
+			case "textDocument/formatting":           HandleRequest(json, OnFormatting(args));
 
 			case "workspace/symbol":                  HandleRequest(json, OnWorkspaceSymbol(args));
 
 			case "beef/changeConfiguration":          HandleRequest(json, OnChangeConfiguration(args));
+			case "beef/build":                        HandleRequest(json, OnBuild());
 			case "beef/workspaceSettings":            HandleRequest(json, OnWorkspaceSettings());
 			}
 		}

@@ -9,6 +9,7 @@ type InitializedArgs = {
 };
 
 let barItem: vscode.StatusBarItem;
+let buildBarItem: vscode.StatusBarItem;
 let client: LanguageClient;
 
 let initialized = false;
@@ -53,11 +54,18 @@ export function activate(context: vscode.ExtensionContext) {
 	barItem.tooltip = "Status: Starting";
 	barItem.command = "beeflang.changeConfiguration";
 	barItem.show();
+
+	buildBarItem = vscode.window.createStatusBarItem("beef-lsp", vscode.StatusBarAlignment.Left);
+	buildBarItem.name = "Beef Build";
+	buildBarItem.text = "$(loading~spin) Building";
 	
 	client.start();
 
 	context.subscriptions.push(vscode.commands.registerCommand("beeflang.changeConfiguration", onChangeConfiguration));
+	context.subscriptions.push(vscode.commands.registerCommand("beeflang.build", onBuild));
 	register(context);
+
+	vscode.languages.setLanguageConfiguration()
 
 	client.onReady().then(onReady);
 }
@@ -86,6 +94,16 @@ function onChangeConfiguration() {
 					});
 			}
 		});
+}
+
+function onBuild() {
+	if (!initialized) return;
+
+	buildBarItem.show();
+
+	client.sendRequest("beef/build")
+		.catch(() => vscode.window.showErrorMessage("Beef: Failed to build workspace"))
+		.finally(() => buildBarItem.hide());
 }
 
 export async function deactivate() {

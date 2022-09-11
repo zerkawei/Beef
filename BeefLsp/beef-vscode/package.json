@@ -43,6 +43,11 @@
         "category": "Beef"
       },
       {
+        "command": "beeflang.build",
+        "title": "Build",
+        "category": "Beef"
+      },
+      {
         "command": "beeflang.workspaceSettings",
         "title": "Open Workspace Settings",
         "category": "Beef"
