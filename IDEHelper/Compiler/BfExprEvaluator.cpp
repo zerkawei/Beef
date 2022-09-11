@@ -3942,9 +3942,11 @@ void BfExprEvaluator::GetLiteral(BfAstNode* refNode, const BfVariant& variant)
 		if ((mExpectingType != NULL) && (mExpectingType->IsSizedArray()))
 		{
 			auto sizedArray = (BfSizedArrayType*)mExpectingType;
-
 			if (sizedArray->mElementType == mModule->GetPrimitiveType(BfTypeCode_Char8))
 			{
+				if (sizedArray->IsUndefSizedArray())
+					sizedArray = mModule->CreateSizedArrayType(sizedArray->mElementType, variant.mString->GetLength());
+
 				if (variant.mString->GetLength() > sizedArray->mElementCount)
 				{
 					mModule->Fail(StrFormat("String literal is too long to fit into '%s'", mModule->TypeToString(sizedArray).c_str()), refNode);
@@ -5318,7 +5320,7 @@ BfTypedValue BfExprEvaluator::LoadField(BfAstNode* targetSrc, BfTypedValue targe
 	}
 
 	BfTypedValue retVal;
-	if (target.IsSplat())
+	if (targetValue.IsSplat())
 	{
 		retVal = mModule->ExtractValue(targetValue, fieldInstance, fieldInstance->mDataIdx);
 	}
@@ -5346,15 +5348,18 @@ BfTypedValue BfExprEvaluator::LoadField(BfAstNode* targetSrc, BfTypedValue targe
 				resolvedFieldType, target.IsReadOnly() ? BfTypedValueKind_ReadOnlyAddr : BfTypedValueKind_Addr);
 		}
 	}
-
-	if (!retVal.IsSplat())
+	
+	if (typeInstance->mIsUnion)
 	{
-		if (typeInstance->mIsUnion)
+		auto unionInnerType = typeInstance->GetUnionInnerType();
+		if (unionInnerType != resolvedFieldType)
 		{
+			if (!retVal.IsAddr())
+				retVal = mModule->MakeAddressable(retVal);
 			BfIRType llvmPtrType = mModule->mBfIRBuilder->GetPointerTo(mModule->mBfIRBuilder->MapType(resolvedFieldType));
 			retVal.mValue = mModule->mBfIRBuilder->CreateBitCast(retVal.mValue, llvmPtrType);
 		}
-	}
+	}	
 
 	if ((fieldDef->mIsVolatile) && (retVal.IsAddr()))
 		retVal.mKind = BfTypedValueKind_VolatileAddr;
@@ -5531,8 +5536,13 @@ BfTypedValue BfExprEvaluator::LookupField(BfAstNode* targetSrc, BfTypedValue tar
 
 		bool isBaseLookup = false;
 		while (curCheckType != NULL)
-		{
-			///
+		{			
+			if (((flags & BfLookupFieldFlag_CheckingOuter) != 0) && ((mBfEvalExprFlags & BfEvalExprFlags_Comptime) != 0))
+			{
+				// Don't fully populateType for CheckingOuter - it carries a risk of an inadvertent data cycle
+				// Avoiding this could cause issues finding emitted statics/constants
+			}
+			else
 			{
 				bool isPopulatingType = false;
 
@@ -6109,7 +6119,13 @@ void BfExprEvaluator::ResolveArgValues(BfResolvedArgs& resolvedArgs, BfResolveAr
 				if ((resolvedArg.mArgFlags & BfArgFlag_StringInterpolateFormat) != 0)
 					exprEvaluator.mBfEvalExprFlags = (BfEvalExprFlags)(exprEvaluator.mBfEvalExprFlags | BfEvalExprFlags_StringInterpolateFormat);
 
+				int lastLocalVarIdx = mModule->mCurMethodState->mLocals.mSize;
 				exprEvaluator.Evaluate(argExpr, false, false, true);
+				if ((deferParamValues) && (mModule->mCurMethodState->mLocals.mSize > lastLocalVarIdx))
+				{
+					// Remove any ignored locals
+					mModule->RestoreScoreState_LocalVariables(lastLocalVarIdx);
+				}
 			}
 
 			if ((mModule->mCurMethodState != NULL) && (exprEvaluator.mResultLocalVar != NULL) && (exprEvaluator.mResultLocalVarRefNode != NULL))
@@ -6173,6 +6189,18 @@ void BfExprEvaluator::PerformCallChecks(BfMethodInstance* methodInstance, BfAstN
 	BfCustomAttributes* customAttributes = methodInstance->GetCustomAttributes();
 	if (customAttributes != NULL)
 		mModule->CheckErrorAttributes(methodInstance->GetOwner(), methodInstance, NULL, customAttributes, targetSrc);
+}
+
+void BfExprEvaluator::CheckSkipCall(BfAstNode* targetSrc, SizedArrayImpl<BfResolvedArg>& argValues)
+{
+	for (auto& argValue : argValues)
+	{
+		if ((!argValue.IsDeferredValue()) && (argValue.mExpression != NULL))
+		{
+			mModule->Fail("Illegal SkipCall invocation", targetSrc);
+			return;
+		}
+	}
 }
 
 BfTypedValue BfExprEvaluator::CreateCall(BfAstNode* targetSrc, BfMethodInstance* methodInstance, BfIRValue func, bool bypassVirtual, SizedArrayImpl<BfIRValue>& irArgs, BfTypedValue* sret, BfCreateCallFlags callFlags, BfType* origTargetType)
@@ -7372,7 +7400,6 @@ void BfExprEvaluator::AddCallDependencies(BfMethodInstance* methodInstance)
 	}
 }
 
-//TODO: delete argumentsZ
 BfTypedValue BfExprEvaluator::CreateCall(BfAstNode* targetSrc, const BfTypedValue& inTarget, const BfTypedValue& origTarget, BfMethodDef* methodDef, BfModuleMethodInstance moduleMethodInstance, BfCreateCallFlags callFlags, SizedArrayImpl<BfResolvedArg>& argValues, BfTypedValue* argCascade)
 {
 	SetAndRestoreValue<BfEvalExprFlags> prevEvalExprFlag(mBfEvalExprFlags);
@@ -7433,7 +7460,7 @@ BfTypedValue BfExprEvaluator::CreateCall(BfAstNode* targetSrc, const BfTypedValu
 	{
 		returnType = methodInstance->GetOwner();
 		BF_ASSERT(returnType->IsInterface());
-	}*/
+	}*/	
 
 	Array<BfTypedValue> argCascades;
 	BfTypedValue target = inTarget;
@@ -7543,6 +7570,7 @@ BfTypedValue BfExprEvaluator::CreateCall(BfAstNode* targetSrc, const BfTypedValu
 
 	if (isSkipCall)
 	{
+		CheckSkipCall(targetSrc, argValues);
 		FinishDeferredEvals(argValues);
 		mModule->EmitEnsureInstructionAt();
 		return mModule->GetDefaultTypedValue(returnType);
@@ -8749,7 +8777,7 @@ BfTypedValue BfExprEvaluator::MatchConstructor(BfAstNode* targetSrc, BfMethodBou
 			}
 			methodMatcher.mArguments.Insert(0, resolvedArg);
 		}
-	}
+	}	
 
 	if (isFailurePass)
 		mModule->Fail(StrFormat("'%s' is inaccessible due to its protection level", mModule->MethodToString(moduleMethodInstance.mMethodInstance).c_str()), targetSrc);
@@ -18643,30 +18671,38 @@ void BfExprEvaluator::DoInvocation(BfAstNode* target, BfMethodBoundExpression* m
 	int methodCount = 0;
 	bool mayBeSkipCall = false;
 	bool mayBeComptimeCall = false;
+
+	BfTypeInstance* checkTypeInst = NULL;
+
 	if (thisValue.mType != NULL)
 	{
 		if (thisValue.mType->IsAllocType())
 			thisValue.mType = thisValue.mType->GetUnderlyingType();
 
-		auto checkTypeInst = thisValue.mType->ToTypeInstance();
-		while (checkTypeInst != NULL)
+		checkTypeInst = thisValue.mType->ToTypeInstance();		
+	}
+	else if (allowImplicitThis)
+	{
+		checkTypeInst = mModule->mCurTypeInstance;
+	}
+
+	while (checkTypeInst != NULL)
+	{
+		checkTypeInst->mTypeDef->PopulateMemberSets();
+		BfMemberSetEntry* memberSetEntry;
+		if (checkTypeInst->mTypeDef->mMethodSet.TryGetWith(targetFunctionName, &memberSetEntry))
 		{
-			checkTypeInst->mTypeDef->PopulateMemberSets();
-			BfMemberSetEntry* memberSetEntry;
-			if (checkTypeInst->mTypeDef->mMethodSet.TryGetWith(targetFunctionName, &memberSetEntry))
+			BfMethodDef* methodDef = (BfMethodDef*)memberSetEntry->mMemberDef;
+			while (methodDef != NULL)
 			{
-				BfMethodDef* methodDef = (BfMethodDef*)memberSetEntry->mMemberDef;
-				while (methodDef != NULL)
-				{
-					if (methodDef->mIsSkipCall)
-						mayBeSkipCall = true;
-					if (methodDef->mHasComptime)
-						mayBeComptimeCall = true;
-					methodDef = methodDef->mNextWithSameName;
-				}
+				if (methodDef->mIsSkipCall)
+					mayBeSkipCall = true;
+				if (methodDef->mHasComptime)
+					mayBeComptimeCall = true;
+				methodDef = methodDef->mNextWithSameName;
 			}
-			checkTypeInst = checkTypeInst->mBaseType;
 		}
+		checkTypeInst = checkTypeInst->mBaseType;
 	}
 
 	SizedArray<BfExpression*, 8> copiedArgs;
@@ -23188,8 +23224,12 @@ void BfExprEvaluator::PerformBinaryOperation(BfExpression* leftExpression, BfExp
 		{
 			// Add as a `^1`
 			auto indexType = mModule->ResolveTypeDef(mModule->mCompiler->mIndexTypeDef)->ToTypeInstance();
-			rightTypedValueExpr.mRefNode = opToken;
+			mModule->PopulateType(indexType->mBaseType);
 
+			BF_ASSERT_REL(indexType->mBaseType->mBaseType != NULL);
+
+			rightTypedValueExpr.mRefNode = opToken;
+			
 			auto valueTypeEmpty = mModule->mBfIRBuilder->CreateConstAgg(mModule->mBfIRBuilder->MapType(indexType->mBaseType->mBaseType), {});
 			SizedArray<BfIRValue, 8> enumMembers;
 			enumMembers.Add(valueTypeEmpty);

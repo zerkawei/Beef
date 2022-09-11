@@ -1963,9 +1963,9 @@ void BfModule::NewScopeState(bool createLexicalBlock, bool flushValueScope)
 	mCurMethodState->mCurScope->mMixinState = mCurMethodState->mMixinState;
 }
 
-void BfModule::RestoreScoreState_LocalVariables()
+void BfModule::RestoreScoreState_LocalVariables(int localVarStart)
 {
-	while (mCurMethodState->mCurScope->mLocalVarStart < (int)mCurMethodState->mLocals.size())
+	while (localVarStart < (int)mCurMethodState->mLocals.size())
 	{
 		auto localVar = mCurMethodState->mLocals.back();
 		LocalVariableDone(localVar, false);
@@ -2022,7 +2022,7 @@ void BfModule::RestoreScopeState()
 
 	EmitDeferredCallProcessorInstances(mCurMethodState->mCurScope);
 
-	RestoreScoreState_LocalVariables();
+	RestoreScoreState_LocalVariables(mCurMethodState->mCurScope->mLocalVarStart);
 
 	if (mCurMethodState->mCurScope->mValueScopeStart)
 		mBfIRBuilder->CreateValueScopeHardEnd(mCurMethodState->mCurScope->mValueScopeStart);
@@ -2677,6 +2677,7 @@ void BfModule::UpdateSrcPos(BfAstNode* astNode, BfSrcPosFlags flags, int debugLo
 		{
 			mCurFilePosition.mFileInstance = bfFileInstance;
 			mCurFilePosition.mCurLine = 0;
+			mCurFilePosition.mCurColumn = 0;
 			mCurFilePosition.mCurSrcPos = 0;
 		}
 	}
@@ -2700,7 +2701,7 @@ void BfModule::UpdateSrcPos(BfAstNode* astNode, BfSrcPosFlags flags, int debugLo
 			mCurFilePosition.mCurColumn = 0;
 		}
 		else
-		{
+		{			
 			mCurFilePosition.mCurColumn++;
 		}
 
@@ -13212,9 +13213,9 @@ BfTypedValue BfModule::ExtractValue(BfTypedValue typedValue, BfFieldInstance* fi
 			{
 				if (typedValue.IsSplat())
 				{
-					BfTypedValue innerVal = typedValue;
-					innerVal.mType = fieldType;
-					return innerVal;
+					bool isAddr = false;
+					BfIRValue irVal = ExtractSplatValue(typedValue, 0, fieldType, &isAddr);
+					return BfTypedValue(irVal, fieldType, typedValue.mValue.IsArg() ? BfTypedValueKind_SplatHead : BfTypedValueKind_Addr);
 				}
 			}
 		}
@@ -13239,9 +13240,9 @@ BfTypedValue BfModule::ExtractValue(BfTypedValue typedValue, BfFieldInstance* fi
 
 				if (typedValue.IsSplat())
 				{
-					BfTypedValue innerVal = typedValue;
-					innerVal.mType = fieldType;
-					return innerVal;
+					bool isAddr = false;
+					BfIRValue irVal = ExtractSplatValue(typedValue, 0, fieldType, &isAddr);
+					return BfTypedValue(irVal, fieldType, typedValue.mValue.IsArg() ? BfTypedValueKind_SplatHead : BfTypedValueKind_Addr);
 				}
 			}
 		}

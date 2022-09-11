@@ -5336,7 +5336,7 @@ void BfModule::DoPopulateType(BfType* resolvedTypeRef, BfPopulateType populateTy
 
 						if (resolvedFieldType->IsValueType())
 						{
-							BF_ASSERT(!resolvedFieldType->IsDataIncomplete());
+							BF_ASSERT((!resolvedFieldType->IsDataIncomplete()) || (resolvedFieldType->HasTypeFailed()));
 						}
 
 						if (!mCompiler->mIsResolveOnly)
@@ -14003,6 +14003,40 @@ BfIRValue BfModule::CastToValue(BfAstNode* srcNode, BfTypedValue typedVal, BfTyp
 					SizedArray<BfIRValue, 2> svFieldVals;
 					svFieldVals.Add(mBfIRBuilder->CreateConstAgg(mBfIRBuilder->MapType(svTypeInst->mBaseType), spanFieldVals));
 					return mBfIRBuilder->CreateConstAgg(mBfIRBuilder->MapType(svTypeInst), svFieldVals);
+				}
+			}
+		}
+		else if (toType->IsSizedArray())
+		{			
+			auto sizedArray = (BfSizedArrayType*)toType;
+			if (sizedArray->mElementType == GetPrimitiveType(BfTypeCode_Char8))
+			{
+				int stringId = GetStringPoolIdx(typedVal.mValue, mBfIRBuilder);
+				if (stringId >= 0)
+				{
+					BfStringPoolEntry* entry = NULL;
+					if (mContext->mStringObjectIdMap.TryGetValue(stringId, &entry))
+					{
+						String& string = entry->mString;
+						
+						if (string.GetLength() > sizedArray->mElementCount)
+						{
+							if (!ignoreErrors)
+								Fail(StrFormat("String literal is too long to fit into '%s'", TypeToString(sizedArray).c_str()), srcNode);
+						}
+
+						Array<BfIRValue> charValues;
+						for (int i = 0; i < (int)BF_MIN(string.GetLength(), sizedArray->mElementCount); i++)
+						{
+							char c = string[i];
+							charValues.Add(mBfIRBuilder->CreateConst(BfTypeCode_Char8, (int)(uint8)c));
+						}
+
+						if (sizedArray->mElementCount > charValues.size())
+							charValues.Add(mBfIRBuilder->CreateConst(BfTypeCode_Char8, 0));
+
+						return mBfIRBuilder->CreateConstAgg(mBfIRBuilder->MapType(sizedArray), charValues);
+					}
 				}
 			}
 		}

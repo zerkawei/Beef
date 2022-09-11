@@ -1750,6 +1750,17 @@ BfLocalVariable* BfModule::HandleVariableDeclaration(BfVariableDeclaration* varD
 				BfExprEvaluator valExprEvaluator(this);
 				valExprEvaluator.mAllowReadOnlyReference = isReadOnly;
 				initValue = CreateValueFromExpression(valExprEvaluator, varDecl->mInitializer, expectedType, (BfEvalExprFlags)(BfEvalExprFlags_NoCast | BfEvalExprFlags_AllowRefExpr | BfEvalExprFlags_VariableDeclaration));
+				
+				if ((initValue) && (resolvedType->IsUndefSizedArray()))
+				{
+					int stringId = GetStringPoolIdx(initValue.mValue, mBfIRBuilder);
+					if (stringId >= 0)
+					{
+						BfStringPoolEntry* entry = NULL;
+						if (mContext->mStringObjectIdMap.TryGetValue(stringId, &entry))
+							resolvedType = CreateSizedArrayType(((BfSizedArrayType*)resolvedType)->mElementType, entry->mString.mLength);
+					}
+				}
 
 				auto boolType = GetPrimitiveType(BfTypeCode_Boolean);
 
@@ -3893,7 +3904,7 @@ void BfModule::DoIfStatement(BfIfStatement* ifStmt, bool includeTrueStmt, bool i
 	// We restore the scopeData before the False block because we don't want variables created in the if condition to
 	//   be visible in the false section
 	//RestoreScopeState();
-	RestoreScoreState_LocalVariables();
+	RestoreScoreState_LocalVariables(mCurMethodState->mCurScope->mLocalVarStart);
 
 	if ((!mCurMethodState->mLeftBlockUncond) && (!ignoredLastBlock))
 		mBfIRBuilder->CreateBr_NoCollapse(contBB);
