@@ -46,6 +46,7 @@ namespace BeefLsp {
 		    mWorkspace.mName = new String();
 		    Path.GetFileName(mWorkspace.mDir, mWorkspace.mName);
 		    LoadWorkspace(mVerb);
+			LoadWorkspaceUserDataCustom();
 
 			WorkspaceLoaded();
 			compiler.[Friend]HandleOptions(null, 0);
@@ -71,6 +72,35 @@ namespace BeefLsp {
 			}
 
 			return worked;
+		}
+
+		private void LoadWorkspaceUserDataCustom() {
+			String path = scope .();
+			if (![Friend]GetWorkspaceUserDataFileName(path)) return;
+
+			StructuredData sd = scope .();
+			sd.Load(path);
+
+			String configName = sd.GetString("LastConfig", .. scope .());
+			if (!configName.IsEmpty) mConfigName.Set(configName);
+
+			String platformName = sd.GetString("LastPlatform", .. scope .());
+			if (!platformName.IsEmpty) mPlatformName.Set(platformName);
+		}
+
+		public void SaveWorkspaceUserDataCustom() {
+			String path = scope .();
+			if (![Friend]GetWorkspaceUserDataFileName(path)) return;
+
+			StructuredData sd = scope .();
+			sd.Load(path);
+
+			Object config;
+			sd.TryGet("LastConfig", out config);
+			((String) config).Set(mConfigName);
+
+			String data = sd.ToTOML(.. scope .());
+			SafeWriteTextFile(path, data, false);
 		}
 	}
 }

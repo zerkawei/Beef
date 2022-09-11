@@ -37,6 +37,7 @@ namespace BeefLsp {
 				case '"': ParseString();
 				case 't': ParseBool();
 				case 'f': ParseBool();
+				case 'n': ParseNull();
 				default:  ParseNumber();
 				}
 			}
@@ -143,6 +144,15 @@ namespace BeefLsp {
 
 				element = .Bool(false);
 			}
+		}
+
+		private void ParseNull() {
+			Consume('n');
+			Consume('u');
+			Consume('l');
+			Consume('l');
+
+			element = .Null();
 		}
 
 		private void ParseNumber() {

@@ -15,6 +15,7 @@ Status: WIP
  - Find references
  - Workspace symbols
  - Renaming
+ - Semantic Tokens
 
 ## Implemented transports
  - Stdio

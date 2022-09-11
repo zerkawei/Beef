@@ -4,6 +4,7 @@ using System.Collections;
 
 using IDE;
 using IDE.Compiler;
+using Beefy.widgets;
 
 namespace BeefLsp {
 	enum CompilerDataType {
@@ -22,25 +23,34 @@ namespace BeefLsp {
 		private ProjectSource source;
 		private BfParser parser;
 
+		private EditWidgetContent.CharData[] charData ~ delete _;
+		private bool charDataDirty, charDataParse;
+
 		[AllowAppend]
 		public this(StringView path, int version, String contents, ProjectSource source) {
 			this.path = new .(path);
 			this.version = version;
 			this.contents = contents;
 			this.source = source;
+			this.charDataDirty = true;
 		}
 
 		public void SetContents(int version, StringView contents) {
 			this.version = version;
 			this.contents.Set(contents);
+			this.charDataDirty = true;
 		}
 
 		public (int, int) GetLine(int position) {
 			return parser.GetLineCharAtIdx(position);
 		}
 
-		public int GetPosition(Json json) {
-			return parser.GetIndexAtLine((.) json["position"]["line"].AsNumber) + (.) json["position"]["character"].AsNumber + 1;
+		public int GetPosition(Json json, StringView name = "position") {
+			return parser.GetIndexAtLine((.) json[name]["line"].AsNumber) + (.) json[name]["character"].AsNumber + 1;
+		}
+
+		public void FetchParser() {
+			parser = LspApp.APP.mBfBuildSystem.FindParser(source);
 		}
 
 		public void Parse(delegate void(BfPassInstance pass) callback) {
@@ -123,9 +133,41 @@ namespace BeefLsp {
 
 			LspApp.APP.compiler.GetCollapseRegions(parser, resolvePassData, "", buffer);
 		}
+
+		public Span<EditWidgetContent.CharData> GetCharData() {
+			if (charDataDirty) {
+				if (charDataParse) {
+					// For some reason when changing configuration Parse() needs to be called even tho all source files have already been parsed
+					Parse(scope (pass) => {});
+					charDataParse = false;
+				}
+
+				if (charData == null || charData.Count < contents.Length) {
+					delete charData;
+					charData = new .[contents.Length];
+				}
+
+				for (let char in contents.RawChars) {
+					charData[@char.Index].mChar = char;
+					charData[@char.Index].mDisplayTypeId = 0;
+				}
+
+				LspApp.APP.LockSystem!();
+				parser.ClassifySource(charData, false);
+
+				charDataDirty = false;
+			}
+
+			return .(charData, 0, contents.Length);
+		}
+
+		public void MarkCharDataDirty() {
+			charDataDirty = true;
+			charDataParse = true;
+		}
 	}
 
-	class DocumentManager {
+	class DocumentManager : IEnumerable<Document> {
 		private Dictionary<String, Document> documents = new .() ~ DeleteDictionaryAndValues!(_);
 
 		public Document Add(StringView path, int version, String contents, ProjectSource source) {
@@ -147,6 +189,10 @@ namespace BeefLsp {
 
 			if (!documents.TryGetAlt(path, out key, out document)) return null;
 			return document;
+		}
+
+		public Dictionary<String, Document>.ValueEnumerator GetEnumerator() {
+			return documents.Values;
 		}
 	}
 }

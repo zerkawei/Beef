@@ -6,13 +6,48 @@ using System.Diagnostics;
 using IDE;
 using IDE.ui;
 using IDE.Compiler;
+using Beefy.widgets;
 
 namespace BeefLsp {
+	enum TokenType {
+		case Namespace;
+		case Type;
+		case Class;
+		case Interface;
+		case Struct;
+		case TypeParameter;
+		case Method;
+		case Keyword;
+		case Comment;
+		case String;
+		case Number;
+		case Macro;
+
+		public StringView Name { get {
+			switch (this) {
+			case .Namespace:     return "namespace";
+			case .Type:          return "type";
+			case .Class:         return "class";
+			case .Interface:     return "interface";
+			case .Struct:        return "struct";
+			case .TypeParameter: return "typeParameter";
+			case .Method:        return "method";
+			case .Keyword:       return "keyword";
+			case .Comment:       return "comment";
+			case .String:        return "string";
+			case .Number:        return "number";
+			case .Macro:         return "macro";
+			}
+		} }
+	}
+	
 	class BeefLspServer : LspServer {
 		private LspApp app = new .() ~ delete _;
 
 		private DocumentManager documents = new .() ~ delete _;
 		private List<String> sentDiagnosticsUris = new .() ~ DeleteContainerAndItems!(_);
+
+		private int[] tokenTypeIds = new .[Enum.GetCount<TokenType>()] ~ delete _;
 
 		public void Start(String[] args) {
 			app.Init();
@@ -71,6 +106,47 @@ namespace BeefLsp {
 			cap["renameProvider"] = renameProvider;
 			renameProvider["prepareProvider"] = .Bool(true);
 
+			//     Semantic Tokens
+			for (int i < tokenTypeIds.Count) tokenTypeIds[i] = -1;
+
+			Json clientTokenTypes = args["capabilities"]["textDocument"]["semanticTokens"]["tokenTypes"];
+			if (clientTokenTypes.IsArray) {
+				int i = 0;
+
+				for (let tokenType in Enum.GetValues<TokenType>()) {
+					TokenType type = (.) -1;
+
+					for (let clientTokenType in clientTokenTypes.AsArray) {
+						if (tokenType.Name == clientTokenType.AsString) {
+							type = tokenType;
+							break;
+						}
+					}
+
+					if (type != (.) -1) {
+						tokenTypeIds[(.) type] = i++;
+					}
+				}
+			}
+
+			Json semanticTokensProvider = .Object();
+			cap["semanticTokensProvider"] = semanticTokensProvider;
+			semanticTokensProvider["full"] = .Bool(true);
+
+			Json legend = .Object();
+			semanticTokensProvider["legend"] = legend;
+			legend["tokenModifiers"] = .Array();
+
+			Json tokenTypes = .Array();
+			legend["tokenTypes"] = tokenTypes;
+
+			int i = 0;
+			for (let tokenType in tokenTypeIds) {
+				if (tokenType != -1) tokenTypes.Add(.String(((TokenType) i).Name));
+				i++;
+			}
+
+			// Server Info
 			Json info = .Object();
 			res["serverInfo"] = info;
 			info["name"] = .String("beef-lsp");
@@ -80,20 +156,36 @@ namespace BeefLsp {
 		}
 
 		private void OnInitialized() {
-			LspApp.APP.LockSystem!();
-
 			// Generate initial diagnostics
+			ParseAll();
+
+			// Send beef/initialized
+			Json json = .Object();
+			json["configuration"] = .String(app.mConfigName);
+
+			Json configurations = .Array();
+			json["configurations"] = configurations;
+
+			for (let config in  app.mWorkspace.mConfigs.Keys) {
+				configurations.Add(.String(config));
+			}
+
+			Send("beef/initialized", json);
+		}
+
+		private void ParseAll() {
+			app.LockSystem!();
+
 			BfPassInstance pass = app.mBfBuildSystem.CreatePassInstance("IntialParse");
 			defer delete pass;
 
 			app.InitialParse(pass);
+			for (let document in documents) document.FetchParser();
 
 			BfResolvePassData passData = .Create(.None);
 			defer delete passData;
 
 			app.compiler.ClassifySource(pass, passData);
-
-			Send("beef/initialized", Json.Null());
 
 			PublishDiagnostics(pass);
 		}
@@ -1106,6 +1198,161 @@ namespace BeefLsp {
 			return Range(startLine, startColumn, endLine, endColumn);
 		}
 
+		private Result<Json, Error> OnSemanticTokensFull(Json args) {
+			// Get path
+			String path = Utils.GetPath!(args).GetValueOrPassthrough!<Json>();
+
+			Document document = documents.Get(path);
+			if (document == null) return Json.Null();
+
+			// Create tokens
+			String tokens = GetSemanticTokens(document, .. new .(1024));
+
+			// Create json
+			Json json = .Object();
+			json["data"] = .DirectWrite(tokens);
+
+			return json;
+		}
+
+		private void GetSemanticTokens(Document document, String buffer) {
+			Span<EditWidgetContent.CharData> data = document.GetCharData();
+
+			buffer.Append('[');
+
+			int line = 0;
+			int column = 0;
+
+			char8 lastChar = '\0';
+			SourceElementType lastType = (.) data[0].mDisplayTypeId;
+			int lastTokenEnd = 0;
+
+			int lastTokenLine = 0;
+			int lastTokenStart = 0;
+
+			void AddToken(SourceElementType type, int line, int start, int end) {
+				if (start >= end) return;
+
+				int typeI;
+				StringView token = "";
+
+				mixin GetToken() {
+					if (token.IsEmpty) {
+						int lineI = document.[Friend]parser.GetIndexAtLine(line);
+						token = document.contents[lineI + start + 1...lineI + end];
+					}
+
+					token
+				}
+
+				switch (type) {
+				case .Comment:      typeI = tokenTypeIds[(.) TokenType.Comment];
+				case .Method:       typeI = tokenTypeIds[(.) TokenType.Method];
+				case .Namespace:    typeI = tokenTypeIds[(.) TokenType.Namespace];
+				case .Keyword:      typeI = tokenTypeIds[(.) TokenType.Keyword];
+				case .Type:         typeI = tokenTypeIds[(.) TokenType.Type];
+				case .Struct:       typeI = tokenTypeIds[(.) TokenType.Struct];
+				case .Interface:    typeI = tokenTypeIds[(.) TokenType.Interface];
+				case .GenericParam: typeI = tokenTypeIds[(.) TokenType.TypeParameter];
+				case .Literal:
+					if (GetToken!().Contains('"')) typeI = tokenTypeIds[(.) TokenType.String];
+					else {
+						bool hasDigit = false;
+
+						for (let char in GetToken!()) {
+							if (char.IsDigit) {
+								hasDigit = true;
+								break;
+							}
+						}
+
+						typeI = hasDigit ? tokenTypeIds[(.) TokenType.Number] : -1;
+					}
+				case (.) 159:       typeI = tokenTypeIds[(.) TokenType.Macro];
+				default:            typeI = -1;
+				}
+
+				if (typeI != -1) {
+					if (buffer.Length > 1) buffer.Append(',');
+					(line - lastTokenLine).ToString(buffer);
+					buffer.Append(',');
+					(start - lastTokenStart).ToString(buffer);
+					buffer.Append(',');
+					(end - start).ToString(buffer);
+					buffer.Append(',');
+					typeI.ToString(buffer);
+					buffer.Append(",0");
+
+					lastTokenLine = line;
+					lastTokenStart = start;
+				}
+			}
+
+			bool preprocessorDirective = false;
+
+			for (let char in data) {
+				if (column == 0 && char.mChar == '#') preprocessorDirective = true;
+				else if (preprocessorDirective && char.mChar == '\n') preprocessorDirective = false;
+
+				SourceElementType type = (.) char.mDisplayTypeId;
+				if (preprocessorDirective) type = (.) 159;
+
+				if (lastType != type) {
+					AddToken(lastType, line, lastTokenEnd, column - (lastChar == '\r' ? 1 : 0));
+
+					lastType = type;
+					lastTokenEnd = column;
+				}
+
+				if (char.mChar == '\n') {
+					AddToken(lastType, line, lastTokenEnd, column - (lastChar == '\r' ? 1 : 0));
+
+					line++;
+					column = 0;
+					lastTokenEnd = 0;
+					lastTokenStart = 0;
+				}
+				else column++;
+
+				lastChar = char.mChar;
+			}
+
+			buffer.Append(']');
+		}
+
+		private Result<Json, Error> OnChangeConfiguration(Json args) {
+			StringView configuration = args["configuration"].AsString;
+
+			if (app.mConfigName != configuration) {
+				bool hasConfig = false;
+
+				for (let config in app.mWorkspace.mConfigs.Keys) {
+					if (config == configuration) {
+						hasConfig = true;
+						break;
+					}
+				}
+
+				if (hasConfig) {
+					app.mConfigName.Set(configuration);
+					app.mWorkspace.FixOptions();
+					app.SaveWorkspaceUserDataCustom();
+		
+					app.compiler.[Friend]HandleOptions(null, 0);
+					ParseAll();
+		
+					for (let document in documents) document.MarkCharDataDirty();
+		
+					Send("workspace/semanticTokens/refresh", .Null(), true);
+				}
+			}
+
+			Json json = .Object();
+			json["configuration"] = .String(app.mConfigName);
+
+			return json;
+		}
+
 		private Result<Json, Error> OnWorkspaceSettings() {
 			Json json = .Object();
 
@@ -1127,33 +1374,37 @@ namespace BeefLsp {
 
 		protected override void OnMessage(Json json) {
 			StringView method = json["method"].AsString;
+			if (method.IsEmpty) return;
+
 			Log.Debug("Received: {}", method);
 
 			Json args = json["params"];
 
 			switch (method) {
-			case "initialize":                  HandleRequest(json, OnInitialize(args));
-			case "initialized":                 OnInitialized();
-			case "shutdown":                    HandleRequest(json, OnShutdown());
+			case "initialize":                        HandleRequest(json, OnInitialize(args));
+			case "initialized":                       OnInitialized();
+			case "shutdown":                          HandleRequest(json, OnShutdown());
 
-			case "textDocument/didOpen":        OnDidOpen(args);
-			case "textDocument/didChange":      OnDidChange(args);
-			case "textDocument/didClose":       OnDidClose(args);
+			case "textDocument/didOpen":              OnDidOpen(args);
+			case "textDocument/didChange":            OnDidChange(args);
+			case "textDocument/didClose":             OnDidClose(args);
 
-			case "textDocument/foldingRange":   HandleRequest(json, OnFoldingRange(args));
-			case "textDocument/completion":     HandleRequest(json, OnCompletion(args));
-			case "completionItem/resolve":      HandleRequest(json, OnCompletionResolve(args));
-			case "textDocument/documentSymbol": HandleRequest(json, OnDocumentSymbol(args));
-			case "textDocument/signatureHelp":  HandleRequest(json, OnSignatureHelp(args));
-			case "textDocument/hover":          HandleRequest(json, OnHover(args));
-			case "textDocument/definition":     HandleRequest(json, OnDefinition(args));
-			case "textDocument/references":     HandleRequest(json, OnReferences(args));
-			case "textDocument/rename":         HandleRequest(json, OnRename(args));
-			case "textDocument/prepareRename":  HandleRequest(json, OnPrepareRename(args));
+			case "textDocument/foldingRange":         HandleRequest(json, OnFoldingRange(args));
+			case "textDocument/completion":           HandleRequest(json, OnCompletion(args));
+			case "completionItem/resolve":            HandleRequest(json, OnCompletionResolve(args));
+			case "textDocument/documentSymbol":       HandleRequest(json, OnDocumentSymbol(args));
+			case "textDocument/signatureHelp":        HandleRequest(json, OnSignatureHelp(args));
+			case "textDocument/hover":                HandleRequest(json, OnHover(args));
+			case "textDocument/definition":           HandleRequest(json, OnDefinition(args));
+			case "textDocument/references":           HandleRequest(json, OnReferences(args));
+			case "textDocument/rename":               HandleRequest(json, OnRename(args));
+			case "textDocument/prepareRename":        HandleRequest(json, OnPrepareRename(args));
+			case "textDocument/semanticTokens/full":  HandleRequest(json, OnSemanticTokensFull(args));
 
-			case "workspace/symbol":            HandleRequest(json, OnWorkspaceSymbol(args));
+			case "workspace/symbol":                  HandleRequest(json, OnWorkspaceSymbol(args));
 
-			case "beef/workspaceSettings":      HandleRequest(json, OnWorkspaceSettings());
+			case "beef/changeConfiguration":          HandleRequest(json, OnChangeConfiguration(args));
+			case "beef/workspaceSettings":            HandleRequest(json, OnWorkspaceSettings());
 			}
 		}
 
@@ -1175,12 +1426,16 @@ namespace BeefLsp {
 			response.Dispose();
 		}
 
-		private void Send(StringView method, Json json) {
+		private int requestId = 0;
+
+		private void Send(StringView method, Json json, bool request = false) {
 			Json notification = .Object();
 
 			notification["jsonrpc"] = .String("2.0");
 			notification["method"] = .String(method);
 			notification["params"] = json;
+
+			if (request) notification["id"] = .Number(requestId++);
 
 			Send(notification);
 			notification.Dispose();

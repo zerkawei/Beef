@@ -8,7 +8,12 @@ namespace BeefLsp {
 		Array,
 		String,
 		Number,
-		Bool
+		Bool,
+		DirectWrite
+	}
+
+	interface ICustomJson {
+		void Write(String buffer);
 	}
 
 	[Union]
@@ -40,9 +45,9 @@ namespace BeefLsp {
 			return .(.Object, data);
 		}
 
-		public static Json Array() {
+		public static Json Array(List<Json> array = null) {
 			JsonData data;
-			data.array = new .();
+			data.array = array == null ? new .() : array;
 
 			return .(.Array, data);
 		}
@@ -68,12 +73,20 @@ namespace BeefLsp {
 			return .(.Bool, data);
 		}
 
+		public static Json DirectWrite(String str) {
+			JsonData data;
+			data.string = str;
+
+			return .(.DirectWrite, data);
+		}
+
 		public bool IsNull => type == .Null;
 		public bool IsObject => type == .Object;
 		public bool IsArray => type == .Array;
 		public bool IsString => type == .String;
 		public bool IsNumber => type == .Number;
 		public bool IsBool => type == .Bool;
+		public bool IsDirectWrite => type == .DirectWrite;
 
 		public Dictionary<String, Json> AsObject => data.object;
 		public List<Json> AsArray => data.array;
@@ -81,9 +94,17 @@ namespace BeefLsp {
 		public double AsNumber => data.number;
 		public bool AsBool => data.bool;
 
-		public Json this[String key]{
-			get => AsObject.GetValueOrDefault(key);
-			set { Remove(key); AsObject[new .(key)] = value; }
+		public Json this[StringView key]{
+			get {
+				String _key;
+				Json value;
+				if (AsObject.TryGetAlt(key, out _key, out value)) return value;
+				return .Null();
+			}
+			set {
+				Remove(key);
+				AsObject[new .(key)] = value;
+			}
 		}
 
 		public Json this[int key] {
@@ -94,7 +115,7 @@ namespace BeefLsp {
 			AsArray.Add(json);
 		}
 
-		public bool Contains(String key) => !this[key].IsNull;
+		public bool Contains(StringView key) => !this[key].IsNull;
 
 		public bool GetBool(String key, bool defaultValue = false) {
 			if (!IsObject) return default;
@@ -110,8 +131,8 @@ namespace BeefLsp {
 			return json.IsNumber ? (.) json.AsNumber : defaultValue;
 		}
 
-		public void Remove(String key) {
-			if (AsObject.GetAndRemove(key) case .Ok(let pair)) {
+		public void Remove(StringView key) {
+			if (AsObject.GetAndRemoveAlt(key) case .Ok(let pair)) {
 				delete pair.key;
 				pair.value.Dispose();
 			}
@@ -169,7 +190,7 @@ namespace BeefLsp {
 
 		public Json Copy() {
 			switch (type) {
-			case .Null: return .Null();
+			case .Null:        return .Null();
 			case .Object:
 				Json json = .Object();
 				for (let pair in AsObject) json[pair.key] = pair.value.Copy();
@@ -178,9 +199,10 @@ namespace BeefLsp {
 				Json json = .Array();
 				for (let item in AsArray) json.Add(item.Copy());
 				return json;
-			case .String: return .String(AsString);
-			case .Number: return .Number(AsNumber);
-			case .Bool:   return .Bool(AsBool);
+			case .String:      return .String(AsString);
+			case .Number:      return .Number(AsNumber);
+			case .Bool:        return .Bool(AsBool);
+			case .DirectWrite: return .DirectWrite(new .(AsString));
 			}
 		}
 		
@@ -196,17 +218,18 @@ namespace BeefLsp {
 			else if (IsArray) {
 				DeleteContainerAndDisposeItems!(AsArray);
 			}
-			else if (IsString) {
+			else if (IsString || IsDirectWrite) {
 				delete AsString;
 			}
 		}
 
 		public override void ToString(String str) {
 			switch (type) {
-			case .Null:   str.Append("null");
-			case .String: str.Append(data.string);
-			case .Number: str.AppendF("{}", data.number);
-			case .Bool:   str.Append(data.bool ? "true" : "false");
+			case .Null:        str.Append("null");
+			case .String:      str.Append(AsString);
+			case .Number:      str.AppendF("{}", AsNumber);
+			case .Bool:        str.Append(AsBool ? "true" : "false");
+			case .DirectWrite: str.Append(AsString);
 			default:
 			}
 		}

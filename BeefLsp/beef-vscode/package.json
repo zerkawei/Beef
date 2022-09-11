@@ -38,6 +38,11 @@
     ],
     "commands": [
       {
+        "command": "beeflang.changeConfiguration",
+        "title": "Change Configuration",
+        "category": "Beef"
+      },
+      {
         "command": "beeflang.workspaceSettings",
         "title": "Open Workspace Settings",
         "category": "Beef"

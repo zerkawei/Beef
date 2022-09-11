@@ -3,8 +3,16 @@ import * as net from "net";
 import { LanguageClient, LanguageClientOptions, ServerOptions, StreamInfo } from "vscode-languageclient/node";
 import { register } from "./workspaceSettings";
 
+type InitializedArgs = {
+	configuration: string;
+	configurations: string[];
+};
+
 let barItem: vscode.StatusBarItem;
 let client: LanguageClient;
+
+let initialized = false;
+let configurations: string[];
 
 const tcp = true;
 
@@ -43,20 +51,41 @@ export function activate(context: vscode.ExtensionContext) {
 	barItem.name = "Beef Lsp Status";
 	barItem.text = "$(loading~spin) Beef Lsp";
 	barItem.tooltip = "Status: Starting";
+	barItem.command = "beeflang.changeConfiguration";
 	barItem.show();
 	
 	client.start();
 
+	context.subscriptions.push(vscode.commands.registerCommand("beeflang.changeConfiguration", onChangeConfiguration));
 	register(context);
 
 	client.onReady().then(onReady);
 }
 
 function onReady() {
-	client.onNotification("beef/initialized", () => {
-		barItem.text = "$(check) Beef Lsp";
+	client.onNotification("beef/initialized", (args: InitializedArgs) => {
+		barItem.text = "$(check) Beef Lsp: " + args.configuration;
 		barItem.tooltip = "Status: Running";
+
+		initialized = true;
+		configurations = args.configurations;
 	});
+}
+
+function onChangeConfiguration() {
+	if (!initialized) return;
+
+	vscode.window.showQuickPick(configurations, { title: "Beef Configuration" })
+		.then(value => {
+			if (value) {
+				barItem.text = "$(loading~spin) Beef Lsp: " + value;
+
+				client.sendRequest<any>("beef/changeConfiguration", { configuration: value })
+					.then(args => {
+						barItem.text = "$(check) Beef Lsp: " + args.configuration;
+					});
+			}
+		});
 }
 
 export async function deactivate() {
