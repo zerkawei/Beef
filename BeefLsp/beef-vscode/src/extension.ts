@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import * as net from "net";
 import { LanguageClient, LanguageClientOptions, ServerOptions, StreamInfo } from "vscode-languageclient/node";
-import { register } from "./workspaceSettings";
+import { registerSettingsView } from "./settingsView";
 
 type InitializedArgs = {
 	configuration: string;
@@ -13,6 +13,8 @@ let buildBarItem: vscode.StatusBarItem;
 let client: LanguageClient;
 
 let initialized = false;
+
+let configuration: string;
 let configurations: string[];
 
 const tcp = true;
@@ -50,34 +52,47 @@ export function activate(context: vscode.ExtensionContext) {
 
 	barItem = vscode.window.createStatusBarItem("beef-lsp", vscode.StatusBarAlignment.Left, 2);
 	barItem.name = "Beef Lsp Status";
-	barItem.text = "$(loading~spin) Beef Lsp";
-	barItem.tooltip = "Status: Starting";
 	barItem.command = "beeflang.changeConfiguration";
+	setBarItem("Starting", true);
 	barItem.show();
 
 	buildBarItem = vscode.window.createStatusBarItem("beef-lsp", vscode.StatusBarAlignment.Left);
 	buildBarItem.name = "Beef Build";
 	buildBarItem.text = "$(loading~spin) Building";
 	
-	client.start();
+	client.start().then(onReady);
 
 	context.subscriptions.push(vscode.commands.registerCommand("beeflang.changeConfiguration", onChangeConfiguration));
 	context.subscriptions.push(vscode.commands.registerCommand("beeflang.build", onBuild));
-	register(context);
 
-	vscode.languages.setLanguageConfiguration()
-
-	client.onReady().then(onReady);
+	registerSettingsView(context, client, "workspace", false);
+	registerSettingsView(context, client, "project", true);
 }
 
 function onReady() {
 	client.onNotification("beef/initialized", (args: InitializedArgs) => {
-		barItem.text = "$(check) Beef Lsp: " + args.configuration;
-		barItem.tooltip = "Status: Running";
-
 		initialized = true;
+
+		configuration = args.configuration;
 		configurations = args.configurations;
+
+		updateBarItem();
 	});
+
+	client.onNotification("beef/classifyBegin", () => setBarItem("Classifying", true));
+	client.onNotification("beef/classifyEnd", () => setBarItem("Running", false));
+}
+
+function setBarItem(status: string, spin: boolean) {
+	barItem.text = "$(" + (spin ? "loading~spin" : "check") + ") Beef Lsp";
+	barItem.tooltip = "Status: " + status;
+
+	if (configuration !== undefined) barItem.text += ": " + configuration;
+}
+
+function updateBarItem() {
+	if (barItem.text.includes(":")) barItem.text = barItem.text.substring(0, barItem.text.indexOf(":")) + ": " + configuration;
+	else barItem.text += ": " + configuration;
 }
 
 function onChangeConfiguration() {
@@ -86,11 +101,10 @@ function onChangeConfiguration() {
 	vscode.window.showQuickPick(configurations, { title: "Beef Configuration" })
 		.then(value => {
 			if (value) {
-				barItem.text = "$(loading~spin) Beef Lsp: " + value;
-
 				client.sendRequest<any>("beef/changeConfiguration", { configuration: value })
 					.then(args => {
-						barItem.text = "$(check) Beef Lsp: " + args.configuration;
+						configuration = args.configuration;
+						updateBarItem();
 					});
 			}
 		});

@@ -174,8 +174,10 @@ namespace BeefLsp {
 			Send("beef/initialized", json);
 		}
 
-		private void ParseAll() {
+		private void ParseAll(bool refreshSemanticTokens = false) {
 			app.LockSystem!();
+
+			Send("beef/classifyBegin", .Null());
 
 			BfPassInstance pass = app.mBfBuildSystem.CreatePassInstance("IntialParse");
 			defer delete pass;
@@ -188,7 +190,13 @@ namespace BeefLsp {
 
 			app.compiler.ClassifySource(pass, passData);
 
+			Send("beef/classifyEnd", .Null());
 			PublishDiagnostics(pass);
+
+			if (refreshSemanticTokens) {
+				for (let document in documents) document.MarkCharDataDirty();
+				Send("workspace/semanticTokens/refresh", .Null(), true);
+			}
 		}
 
 		private void PublishDiagnostics(BfPassInstance pass) {
@@ -1362,12 +1370,7 @@ namespace BeefLsp {
 					app.mWorkspace.FixOptions();
 					app.SaveWorkspaceUserDataCustom();
 		
-					app.compiler.[Friend]HandleOptions(null, 0);
-					ParseAll();
-		
-					for (let document in documents) document.MarkCharDataDirty();
-		
-					Send("workspace/semanticTokens/refresh", .Null(), true);
+					ParseAll(true);
 				}
 			}
 
@@ -1386,12 +1389,217 @@ namespace BeefLsp {
 			return Json.Null();
 		}
 
-		private Result<Json, Error> OnWorkspaceSettings() {
+		private Result<Json, Error> OnProjects() {
+			Json json = .Array();
+
+			for (let project in app.mWorkspace.mProjects) {
+				Json projectJson = .Object();
+				json.Add(projectJson);
+
+				projectJson["name"] = .String(project.mProjectName);
+				projectJson["dir"] = .String(project.mProjectDir);
+			}
+
+			return json;
+		}
+
+		private Result<Json, Error> OnSettingsSchema(Json args) {
+			StringView id = args["id"].AsString;
+
 			Json json = .Object();
+			
+			Json groups = .Array();
+			json["groups"] = groups;
 
+			// Workspace
+			if (id == "workspace") {
+				PutSettingsSchemaBase(json, "workspace");
+				WorkspaceSettings.Loop(scope (group) => groups.Add(group.ToJsonSchema()));
+			}
+			// Project
+			else if (id == "project") {
+				// Get project
+				Project project = null;
 
+				for (let proj in app.mWorkspace.mProjects) {
+					if (proj.mProjectName == args["project"].AsString) {
+						project = proj;
+						break;
+					}
+				}
+
+				if (project == null) {
+					json.Dispose();
+					return .Err(new .(0, "Failed to find project: {}", args["project"].AsString));
+				}
+
+				// Create json
+				PutSettingsSchemaBase(json, "project");
+				ProjectSettings.Loop(app.mWorkspace, project, scope (group) => groups.Add(group.ToJsonSchema()));
+			}
+			// Unknown id
+			else {
+				json.Dispose();
+				return .Err(new .(0, "Unknown settings id"));
+			}
 			
 			return json;
+		}
+
+		private void PutSettingsSchemaBase(Json json, StringView id) {
+			json["id"] = .String(id);
+
+			// Configurations
+			Json configurations = .Array();
+			json["configurations"] = configurations;
+
+			for (let config in app.mWorkspace.mConfigs.Keys) {
+				configurations.Add(.String(config));
+			}
+
+			json["configuration"] = .String(app.mConfigName);
+
+			// Platforms
+			Json platforms = .Array();
+			json["platforms"] = platforms;
+
+			List<String> p = app.mWorkspace.GetPlatformList(.. scope .());
+
+			for (let platform in p) {
+				platforms.Add(.String(platform));
+			}
+
+			json["platform"] = .String(app.mPlatformName);
+		}
+
+		private Result<Json, Error> OnGetSettingsValues(Json args) {
+			StringView id = args["id"].AsString;
+
+			Json json = .Object();
+
+			Json groups = .Array();
+			json["groups"] = groups;
+
+			// Project
+			if (id == "project") {
+				// Get project
+				Project project = null;
+
+				for (let proj in app.mWorkspace.mProjects) {
+					if (proj.mProjectName == args["project"].AsString) {
+						project = proj;
+						break;
+					}
+				}
+
+				if (project == null) return .Err(new .(0, "Failed to find project: {}", args["project"].AsString));
+
+				// Add groups
+				ProjectSettings.Target target = .(project, args["configuration"].AsString, args["platform"].AsString);
+				ProjectSettings.Loop(app.mWorkspace, project, scope (group) => groups.Add(group.ToJsonValues(target)));
+			}
+			else if (id == "workspace") {
+				WorkspaceSettings.Target target = .(app.mWorkspace, args["configuration"].AsString, args["platform"].AsString);
+				WorkspaceSettings.Loop(scope (group) => groups.Add(group.ToJsonValues(target)));
+			}
+			// Unknown id
+			else {
+				json.Dispose();
+				return .Err(new .(0, "Unknown settings id"));
+			}
+
+			return json;
+		}
+
+		private Result<Json, Error> OnSetSettingsValues(Json args) {
+			StringView id = args["id"].AsString;
+
+			// Project
+			if (id == "project") {
+				// Get project
+				Project project = null;
+
+				for (let proj in app.mWorkspace.mProjects) {
+					if (proj.mProjectName == args["project"].AsString) {
+						project = proj;
+						break;
+					}
+				}
+
+				if (project == null) return .Err(new .(0, "Failed to find project: {}", args["project"].AsString));
+				
+				// Set values
+				ProjectSettings.Target target = .(project, args["configuration"].AsString, args["platform"].AsString);
+				bool changed = false;
+
+				for (let group in args["groups"].AsArray) {
+					int groupId = (.) group["id"].AsNumber;
+
+					for (let setting in group["settings"].AsObject) {
+						if (ProjectSettings.Set(app.mWorkspace, project, target, groupId, setting.key, setting.value)) changed = true;
+					}
+				}
+
+				// Save config
+				if (changed) {
+					project.Save();
+					ParseAll(true);
+				}
+			}
+			else if (id == "workspace") {
+				// Set values
+				WorkspaceSettings.Target target = .(app.mWorkspace, args["configuration"].AsString, args["platform"].AsString);
+				bool changed = false;
+
+				for (let group in args["groups"].AsArray) {
+					int groupId = (.) group["id"].AsNumber;
+
+					for (let setting in group["settings"].AsObject) {
+						if (WorkspaceSettings.Set(target, groupId, setting.key, setting.value)) changed = true;
+					}
+				}
+
+				// Save config
+				if (changed) {
+					app.[Friend]SaveWorkspace();
+					ParseAll(true);
+				}
+			}
+			// Unknown id
+			else {
+				return .Err(new .(0, "Unknown settings id"));
+			}
+
+			return Json.Null();
+		}
+
+		private Result<Json, Error> OnFileProject(Json args) {
+			// Get path
+			String path = Utils.GetPath!(args).GetValueOrPassthrough!<Json>();
+
+			// Find Project
+			Project project = null;
+
+			for (let proj in app.mWorkspace.mProjects) {
+				// Check project file
+				if (proj.mProjectPath == path) {
+					project = proj;
+					break;
+				}
+
+				// Check source files
+				String relPath = scope .();
+				proj.GetProjectRelPath(path, relPath);
+
+				ProjectFileItem item = app.FindProjectFileItem(proj.mRootFolder, relPath);
+				if (item != null) {
+					project = proj;
+					break;
+				}
+			}
+
+			// Create json
+			return Json.String(project != null ? project.mProjectName : "");
 		}
 
 		private Result<Json, Error> OnShutdown() {
@@ -1439,7 +1647,11 @@ namespace BeefLsp {
 
 			case "beef/changeConfiguration":          HandleRequest(json, OnChangeConfiguration(args));
 			case "beef/build":                        HandleRequest(json, OnBuild());
-			case "beef/workspaceSettings":            HandleRequest(json, OnWorkspaceSettings());
+			case "beef/projects":                  	  HandleRequest(json, OnProjects());
+			case "beef/settingsSchema":               HandleRequest(json, OnSettingsSchema(args));
+			case "beef/getSettingsValues":            HandleRequest(json, OnGetSettingsValues(args));
+			case "beef/setSettingsValues":            HandleRequest(json, OnSetSettingsValues(args));
+			case "beef/fileProject":                  HandleRequest(json, OnFileProject(args));
 			}
 		}
 

@@ -118,14 +118,14 @@ namespace BeefLsp {
 		public bool Contains(StringView key) => !this[key].IsNull;
 
 		public bool GetBool(String key, bool defaultValue = false) {
-			if (!IsObject) return default;
+			if (!IsObject) return defaultValue;
 
 			let json = this[key];
 			return json.IsBool ? json.AsBool : defaultValue;
 		}
 
 		public int GetInt(String key, int defaultValue) {
-			if (!IsObject) return default;
+			if (!IsObject) return defaultValue;
 
 			let json = this[key];
 			return json.IsNumber ? (.) json.AsNumber : defaultValue;

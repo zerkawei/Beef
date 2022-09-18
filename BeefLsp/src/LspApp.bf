@@ -49,10 +49,10 @@ namespace BeefLsp {
 			LoadWorkspaceUserDataCustom();
 
 			WorkspaceLoaded();
-			compiler.[Friend]HandleOptions(null, 0);
 
 			for (let project in mWorkspace.mProjects) {
 				IDEUtils.FixFilePath(project.mProjectDir);
+				IDEUtils.FixFilePath(project.mProjectPath);
 
 				if (!fileWatcher.Watch(project.mProjectDir)) {
 					Log.Error("Failed to watch project for file changes.");
@@ -65,6 +65,8 @@ namespace BeefLsp {
 
 		public bool InitialParse(BfPassInstance pass) {
 			bool worked = true;
+
+			compiler.[Friend]HandleOptions(null, 0);
 
 			for (let project in mWorkspace.mProjects) {
 				SetupBeefProjectSettings(mBfBuildSystem, compiler, project);

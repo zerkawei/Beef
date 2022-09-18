@@ -4,6 +4,7 @@
   "description": "Adds support for the Beef programming language.",
   "version": "0.0.1",
   "publisher": "MineGame159",
+  "repository": "github:MineGame159/Beef",
   "engines": {
     "vscode": "^1.70.0"
   },
@@ -12,7 +13,8 @@
   ],
   "activationEvents": [
     "onLanguage:bf",
-    "onCommand:beeflang.workspaceSettings"
+    "onCommand:beeflang.workspaceSettings",
+    "onCommand:beeflang.projectSettings"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -50,33 +52,47 @@
       {
         "command": "beeflang.workspaceSettings",
         "title": "Open Workspace Settings",
-        "category": "Beef"
+        "category": "Beef",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "beeflang.projectSettings",
+        "title": "Open Project Settings",
+        "category": "Beef",
+        "icon": "$(gear)"
       }
-    ]
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "when": "resourceFilename == BeefSpace.toml",
+          "command": "beeflang.workspaceSettings",
+          "group": "navigation"
+        },
+        {
+          "when": "resourceFilename == BeefProj.toml",
+          "command": "beeflang.projectSettings",
+          "group": "navigation"
+        }
+      ]
+    }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
-    "compile": "rollup -c",
-    "watch": "rollup -c -w"
-  },
-  "dependencies": {
-    "@vscode/webview-ui-toolkit": "^1.0.1",
-    "vscode-languageclient": "^7.0.0"
+    "vscode:prepublish": "node build.mjs -p",
+    "compile": "node build.mjs",
+    "watch": "node build.mjs -w"
   },
   "devDependencies": {
-    "@rollup/plugin-commonjs": "^22.0.2",
-    "@rollup/plugin-node-resolve": "^14.0.0",
     "@types/glob": "^7.1.4",
     "@types/node": "14.x",
     "@types/vscode": "^1.70.0",
     "@yelo/rollup-node-external": "^1.0.1",
-    "acorn-jsx": "^5.3.2",
-    "glob": "^7.1.7",
-    "js-yaml": "^4.1.0",
-    "preact": "^10.10.6",
-    "rollup": "^2.79.0",
-    "rollup-plugin-postcss": "^4.0.2",
-    "rollup-plugin-ts": "^3.0.2",
-    "typescript": "^4.4.3"
+    "chokidar": "^3.5.3",
+    "esbuild": "^0.15.7",
+    "esbuild-svelte": "^0.7.1",
+    "parcel-plugin-svelte": "^4.0.9",
+    "svelte-preprocess": "^4.10.7",
+    "typescript": "^4.8.3",
+    "vscode-languageclient": "^8.0.2"
   }
 }
