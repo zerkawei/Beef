@@ -1,128 +1,149 @@
 import * as vscode from "vscode";
 import * as net from "net";
 import { LanguageClient, LanguageClientOptions, ServerOptions, StreamInfo } from "vscode-languageclient/node";
+import { registerCommands } from "./commands";
+import { InitializedArgs } from "./types";
 import { registerSettingsView } from "./settingsView";
 
-type InitializedArgs = {
-	configuration: string;
-	configurations: string[];
-};
+const devTcp = false;
 
-let barItem: vscode.StatusBarItem;
-let buildBarItem: vscode.StatusBarItem;
-let client: LanguageClient;
+export class Extension {
+    private context: vscode.ExtensionContext;
+    private client: LanguageClient;
+    private initialized: boolean;
 
-let initialized = false;
+    private barItem: vscode.StatusBarItem;
 
-let configuration: string;
-let configurations: string[];
+    private configuration: string;
 
-const tcp = true;
+    constructor(context: vscode.ExtensionContext) {
+        this.context = context;
+        this.initialized = false;
+
+        // Bar Item
+        this.barItem = vscode.window.createStatusBarItem("beef-lsp", vscode.StatusBarAlignment.Left, 2);
+        this.barItem.name = "Beef Lsp Status";
+        this.barItem.command = "beeflang.changeConfiguration";
+
+        // Register
+        registerCommands(this);
+
+        registerSettingsView(this, "workspace", false);
+        registerSettingsView(this, "project", true);
+    }
+
+    start() {
+        let serverOptions: ServerOptions = {
+            command: "BeefLsp"
+        };
+    
+        if (this.context.extensionMode === vscode.ExtensionMode.Development && devTcp) {
+            serverOptions = () => {
+                let socket = net.createConnection({
+                    port: 5556
+                });
+        
+                let result: StreamInfo = {
+                    writer: socket,
+                    reader: socket
+                };
+        
+                return Promise.resolve(result);
+            };
+        }
+    
+        let clientOptions: LanguageClientOptions = {
+            documentSelector: [{ scheme: "file", language: "bf" }]
+        };
+    
+        this.client = new LanguageClient(
+            "beeflang",
+            "Beef Lang",
+            serverOptions,
+            clientOptions
+        );
+
+        this.setBarItem("Starting", true);
+        this.barItem.show();
+
+        this.client.start().then(this.onReady.bind(this));
+    }
+
+    private onReady() {
+        this.client.onNotification("beef/initialized", (args: InitializedArgs) => {
+            this.setConfiguration(args.configuration);
+            vscode.commands.executeCommand("setContext", "beef.isActive", true);
+
+            this.initialized = true;
+        });
+    
+        this.client.onNotification("beef/classifyBegin", () => this.setBarItem("Classifying", true));
+        this.client.onNotification("beef/classifyEnd", () => this.setBarItem("Running", false));
+    }
+
+    setBarItem(status: string, spin: boolean) {
+        this.barItem.text = "$(" + (spin ? "loading~spin" : "check") + ") Beef Lsp";
+        this.barItem.tooltip = "Status: " + status;
+    
+        if (this.configuration !== undefined) this.barItem.text += ": " + this.configuration;
+    }
+
+    setConfiguration(configuration: string) {
+        this.configuration = configuration;
+        
+        if (this.barItem.text.includes(":")) this.barItem.text = this.barItem.text.substring(0, this.barItem.text.indexOf(":")) + ": " + configuration;
+        else this.barItem.text += ": " + configuration;
+    }
+
+    getConfigurations(): Promise<string[]> {
+        return this.onlyIfRunningPromise(() => this.sendLspRequest<string[]>("beef/configurations"));
+    }
+
+    sendLspRequest<T>(method: string, param?: any): Promise<T> {
+        return this.onlyIfRunningPromise(() => this.client.sendRequest<T>(method, param));
+    }
+
+    sendLspNotification(method: string, param: any) {
+        this.onlyIfRunning(() => this.client.sendNotification(method, param));
+    }
+
+    registerCommand(command: string, callback: (ext: Extension) => void) {
+        this.context.subscriptions.push(vscode.commands.registerCommand(command, () => {
+            this.onlyIfRunning(() => callback(this));
+        }, this));
+    }
+
+    private onlyIfRunning(callback: () => void) {
+        if (this.initialized && this.client.isRunning()) callback.bind(this)();
+        else vscode.window.showInformationMessage("Beef LSP server is not running");
+    }
+
+    private onlyIfRunningPromise<T>(callback: () => Promise<T>): Promise<T> {
+        if (this.initialized && this.client.isRunning()) return callback.bind(this)();
+
+        vscode.window.showInformationMessage("Beef LSP server is not running");
+        return Promise.reject("Beef LSP server is not running");
+    }
+
+    uri(...pathSegments: string[]): vscode.Uri {
+        return vscode.Uri.joinPath(this.context.extensionUri, ...pathSegments);
+    }
+
+    async stop() {
+        this.barItem.hide();
+        this.initialized = false;
+
+        await this.client.dispose();
+    }
+}
+
+let extension: Extension;
 
 export function activate(context: vscode.ExtensionContext) {
-	let serverOptions: ServerOptions = {
-		command: "BeefLsp"
-	};
-
-	if (tcp) {
-		serverOptions = () => {
-			let socket = net.createConnection({
-				port: 5556
-			});
-	
-			let result: StreamInfo = {
-				writer: socket,
-				reader: socket
-			};
-	
-			return Promise.resolve(result);
-		};
-	}
-
-	let clientOptions: LanguageClientOptions = {
-		documentSelector: [{ scheme: "file", language: "bf" }]
-	};
-
-	client = new LanguageClient(
-		"beeflang",
-		"Beef Lang",
-		serverOptions,
-		clientOptions
-	);
-
-	barItem = vscode.window.createStatusBarItem("beef-lsp", vscode.StatusBarAlignment.Left, 2);
-	barItem.name = "Beef Lsp Status";
-	barItem.command = "beeflang.changeConfiguration";
-	setBarItem("Starting", true);
-	barItem.show();
-
-	buildBarItem = vscode.window.createStatusBarItem("beef-lsp", vscode.StatusBarAlignment.Left);
-	buildBarItem.name = "Beef Build";
-	buildBarItem.text = "$(loading~spin) Building";
-	
-	client.start().then(onReady);
-
-	context.subscriptions.push(vscode.commands.registerCommand("beeflang.changeConfiguration", onChangeConfiguration));
-	context.subscriptions.push(vscode.commands.registerCommand("beeflang.build", onBuild));
-
-	registerSettingsView(context, client, "workspace", false);
-	registerSettingsView(context, client, "project", true);
-}
-
-function onReady() {
-	client.onNotification("beef/initialized", (args: InitializedArgs) => {
-		initialized = true;
-
-		configuration = args.configuration;
-		configurations = args.configurations;
-
-		updateBarItem();
-	});
-
-	client.onNotification("beef/classifyBegin", () => setBarItem("Classifying", true));
-	client.onNotification("beef/classifyEnd", () => setBarItem("Running", false));
-}
-
-function setBarItem(status: string, spin: boolean) {
-	barItem.text = "$(" + (spin ? "loading~spin" : "check") + ") Beef Lsp";
-	barItem.tooltip = "Status: " + status;
-
-	if (configuration !== undefined) barItem.text += ": " + configuration;
-}
-
-function updateBarItem() {
-	if (barItem.text.includes(":")) barItem.text = barItem.text.substring(0, barItem.text.indexOf(":")) + ": " + configuration;
-	else barItem.text += ": " + configuration;
-}
-
-function onChangeConfiguration() {
-	if (!initialized) return;
-
-	vscode.window.showQuickPick(configurations, { title: "Beef Configuration" })
-		.then(value => {
-			if (value) {
-				client.sendRequest<any>("beef/changeConfiguration", { configuration: value })
-					.then(args => {
-						configuration = args.configuration;
-						updateBarItem();
-					});
-			}
-		});
-}
-
-function onBuild() {
-	if (!initialized) return;
-
-	buildBarItem.show();
-
-	client.sendRequest("beef/build")
-		.catch(() => vscode.window.showErrorMessage("Beef: Failed to build workspace"))
-		.finally(() => buildBarItem.hide());
+    extension = new Extension(context);
+    extension.start();
 }
 
 export async function deactivate() {
-	barItem.hide();
-	barItem.dispose();
-
-	await client.stop();
+    await extension.stop();
 }

@@ -31,7 +31,8 @@ function buildExtension() {
         minify: process.argv.includes("-p"),
         external: [ "vscode" ],
         format: "cjs",
-        platform: "node"
+        platform: "node",
+        sourcemap: process.argv.includes("-p") ? undefined : "linked"
     });
 }
 

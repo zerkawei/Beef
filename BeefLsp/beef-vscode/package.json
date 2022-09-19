@@ -2,9 +2,10 @@
   "name": "beeflang",
   "displayName": "Beef Lang",
   "description": "Adds support for the Beef programming language.",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "publisher": "MineGame159",
   "repository": "github:MineGame159/Beef",
+  "icon": "images/icon.png",
   "engines": {
     "vscode": "^1.70.0"
   },
@@ -28,7 +29,11 @@
         "extensions": [
           ".bf"
         ],
-        "configuration": "./language-configuration.json"
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "dark": "images/icon.png",
+          "light": "images/icon.png"
+        }
       }
     ],
     "grammars": [
@@ -60,6 +65,11 @@
         "title": "Open Project Settings",
         "category": "Beef",
         "icon": "$(gear)"
+      },
+      {
+        "command": "beeflang.restart",
+        "title": "Restart LSP",
+        "category": "Beef"
       }
     ],
     "menus": {

@@ -164,13 +164,6 @@ namespace BeefLsp {
 			Json json = .Object();
 			json["configuration"] = .String(app.mConfigName);
 
-			Json configurations = .Array();
-			json["configurations"] = configurations;
-
-			for (let config in  app.mWorkspace.mConfigs.Keys) {
-				configurations.Add(.String(config));
-			}
-
 			Send("beef/initialized", json);
 		}
 
@@ -1403,6 +1396,16 @@ namespace BeefLsp {
 			return json;
 		}
 
+		private Result<Json, Error> OnConfigurations() {
+			Json json = .Array();
+
+			for (let config in  app.mWorkspace.mConfigs.Keys) {
+				json.Add(.String(config));
+			}
+
+			return json;
+		}
+
 		private Result<Json, Error> OnSettingsSchema(Json args) {
 			StringView id = args["id"].AsString;
 
@@ -1608,9 +1611,11 @@ namespace BeefLsp {
 			app.Stop();
 			app.Shutdown();
 
-			Stop();
-
 			return Json.Null();
+		}
+
+		private void OnExit() {
+			Stop();
 		}
 
 		protected override void OnMessage(Json json) {
@@ -1625,6 +1630,7 @@ namespace BeefLsp {
 			case "initialize":                        HandleRequest(json, OnInitialize(args));
 			case "initialized":                       OnInitialized();
 			case "shutdown":                          HandleRequest(json, OnShutdown());
+			case "exit":                              OnExit();
 
 			case "textDocument/didOpen":              OnDidOpen(args);
 			case "textDocument/didChange":            OnDidChange(args);
@@ -1648,6 +1654,7 @@ namespace BeefLsp {
 			case "beef/changeConfiguration":          HandleRequest(json, OnChangeConfiguration(args));
 			case "beef/build":                        HandleRequest(json, OnBuild());
 			case "beef/projects":                  	  HandleRequest(json, OnProjects());
+			case "beef/configurations":               HandleRequest(json, OnConfigurations());
 			case "beef/settingsSchema":               HandleRequest(json, OnSettingsSchema(args));
 			case "beef/getSettingsValues":            HandleRequest(json, OnGetSettingsValues(args));
 			case "beef/setSettingsValues":            HandleRequest(json, OnSetSettingsValues(args));

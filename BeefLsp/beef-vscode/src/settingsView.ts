@@ -1,40 +1,36 @@
 import * as vscode from "vscode";
-import { LanguageClient } from "vscode-languageclient/node";
+import { Extension } from "./extension";
+import { Project } from "./types";
 
-type Project = {
-    name: string;
-    dir: string;
-};
-
-export function registerSettingsView(context: vscode.ExtensionContext, client: LanguageClient, name: string, projectSpecific: boolean) {
-    context.subscriptions.push(vscode.commands.registerCommand("beeflang." + name + "Settings", () => {
+export function registerSettingsView(ext: Extension, name: string, projectSpecific: boolean) {
+    ext.registerCommand("beeflang." + name + "Settings", ext => {
         if (projectSpecific) {
-            getProject(client).then(project => openView(context, client, name, project));
+            getProject(ext).then(project => openView(ext, name, project));
         }
-        else openView(context, client, name, null);
-    }));
+        else openView(ext, name, null);
+    });
 }
 
-function getProject(client: LanguageClient): Promise<string> {
+function getProject(ext: Extension): Promise<string> {
     const editor = vscode.window.activeTextEditor;
 
     if (editor !== undefined && editor.document.fileName.endsWith(".toml")) {
         return new Promise((resolve, reject) => {
-            client.sendRequest<string>("beef/fileProject", { textDocument: { uri: editor.document.uri.toString() } })
+            ext.sendLspRequest<string>("beef/fileProject", { textDocument: { uri: editor.document.uri.toString() } })
                 .then(project => {
-                    if (project === "") getProjectByQuickPick(client).then(resolve).catch(reject);
+                    if (project === "") getProjectByQuickPick(ext).then(resolve).catch(reject);
                     else resolve(project);
                 })
                 .catch(reject);
         });
     }
 
-    return getProjectByQuickPick(client);
+    return getProjectByQuickPick(ext);
 }
 
-function getProjectByQuickPick(client: LanguageClient): Promise<string> {
+function getProjectByQuickPick(ext: Extension): Promise<string> {
     return new Promise((resolve, reject) => {
-        client.sendRequest<Project[]>("beef/projects")
+        ext.sendLspRequest<Project[]>("beef/projects")
             .then(projects => {
                 let names = projects.map(project => project.name);
 
@@ -50,7 +46,7 @@ function capitalize(str: string) {
     return str.charAt(0).toUpperCase() + str.slice(1);
   }
 
-function openView(context: vscode.ExtensionContext, client: LanguageClient, name: string, project: string | null) {
+function openView(ext: Extension, name: string, project: string | null) {
     let title = capitalize(name) + " Settings";
     if (project !== null) title += ": " + project;
     
@@ -60,12 +56,11 @@ function openView(context: vscode.ExtensionContext, client: LanguageClient, name
     });
 
     panel.iconPath = {
-        dark: vscode.Uri.joinPath(context.extensionUri, "images", "gear-light.svg"),
-        light: vscode.Uri.joinPath(context.extensionUri, "images", "gear-dark.svg")
+        dark: ext.uri("images", "gear-light.svg"),
+        light: ext.uri("images", "gear-dark.svg")
     };
-
-    const cssUri = panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, "out", "settings.css"));
-    const jsUri = panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, "out", "settings.js"));
+    const cssUri = panel.webview.asWebviewUri(ext.uri("out", "settings.css"));
+    const jsUri = panel.webview.asWebviewUri(ext.uri("out", "settings.js"));
 
     panel.webview.html = `
     <!DOCTYPE html>
@@ -83,18 +78,18 @@ function openView(context: vscode.ExtensionContext, client: LanguageClient, name
     </body>
     `;
 
-    sendSchema(panel, client, name, project);
-    handleMessages(panel, client, project);
+    sendSchema(ext, panel, name, project);
+    handleMessages(ext, panel, project);
 }
 
-function sendSchema(panel: vscode.WebviewPanel, client: LanguageClient, name: string, project: string | null) {
+function sendSchema(ext: Extension, panel: vscode.WebviewPanel, name: string, project: string | null) {
     let options: any = {
         id: name
     };
 
     if (project !== null) options.project = project;
 
-    client.sendRequest<any>("beef/settingsSchema", options)
+    ext.sendLspRequest<any>("beef/settingsSchema", options)
         .then(schema => {
             panel.webview.postMessage({
                 message: "schema",
@@ -103,7 +98,7 @@ function sendSchema(panel: vscode.WebviewPanel, client: LanguageClient, name: st
         });
 }
 
-function handleMessages(panel: vscode.WebviewPanel, client: LanguageClient, project: string | null) {
+function handleMessages(ext: Extension, panel: vscode.WebviewPanel, project: string | null) {
     panel.webview.onDidReceiveMessage(message => {
         let options: any = {
             id: message.id,
@@ -113,7 +108,7 @@ function handleMessages(panel: vscode.WebviewPanel, client: LanguageClient, proj
         if (project != null) options.project = project;
 
         if (message.type === "values") {
-            client.sendRequest<any>("beef/getSettingsValues", options)
+            ext.sendLspRequest<any>("beef/getSettingsValues", options)
                 .then(values => {
                     panel.webview.postMessage({
                         message: "values",
@@ -124,7 +119,7 @@ function handleMessages(panel: vscode.WebviewPanel, client: LanguageClient, proj
         else if (message.type === "set-values") {
             options.groups = message.groups;
 
-            client.sendNotification("beef/setSettingsValues", options);
+            ext.sendLspNotification("beef/setSettingsValues", options);
         }
     });
 }
