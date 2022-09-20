@@ -5,7 +5,7 @@ import { registerCommands } from "./commands";
 import { InitializedArgs } from "./types";
 import { registerSettingsView } from "./settingsView";
 
-const devTcp = false;
+const devTcp = true;
 
 export class Extension {
     private context: vscode.ExtensionContext;
@@ -79,6 +79,11 @@ export class Extension {
     
         this.client.onNotification("beef/classifyBegin", () => this.setBarItem("Classifying", true));
         this.client.onNotification("beef/classifyEnd", () => this.setBarItem("Running", false));
+
+        // Send settings
+        this.client.sendNotification("beef/settings", {
+            debugLogging: vscode.workspace.getConfiguration("beeflang").get<boolean>("debugLogging")
+        });
     }
 
     setBarItem(status: string, spin: boolean) {
@@ -107,9 +112,10 @@ export class Extension {
         this.onlyIfRunning(() => this.client.sendNotification(method, param));
     }
 
-    registerCommand(command: string, callback: (ext: Extension) => void) {
+    registerCommand(command: string, callback: (ext: Extension) => void, onlyIfRunning = true) {
         this.context.subscriptions.push(vscode.commands.registerCommand(command, () => {
-            this.onlyIfRunning(() => callback(this));
+            if (onlyIfRunning) this.onlyIfRunning(() => callback(this));
+            else callback(this);
         }, this));
     }
 
@@ -133,7 +139,10 @@ export class Extension {
         this.barItem.hide();
         this.initialized = false;
 
-        await this.client.dispose();
+        if (this.initialized && this.client.isRunning()) {
+            await this.client.dispose();
+            this.initialized = false;
+        }
     }
 }
 

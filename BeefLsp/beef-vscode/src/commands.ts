@@ -3,7 +3,7 @@ import { Extension } from "./extension";
 
 export function registerCommands(ext: Extension) {
     ext.registerCommand("beeflang.changeConfiguration", onChangeConfiguration);
-    ext.registerCommand("beeflang.restart", onRestart);
+    ext.registerCommand("beeflang.restart", onRestart, false);
 };
 
 function onChangeConfiguration(ext: Extension) {

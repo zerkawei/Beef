@@ -56,7 +56,7 @@ namespace BeefLsp {
 			int port = -1;
 
 			for (let arg in args) {
-				if (arg == "--logFile") Log.SetupFile();
+				if (arg == "--logFile") Log.AddLogger(new FileLogger());
 				else if (arg.StartsWith("--port=")) {
 					if (int.Parse(arg[7...]) case .Ok(let val)) port = val;
 				}
@@ -158,7 +158,7 @@ namespace BeefLsp {
 
 		private void OnInitialized() {
 			// Generate initial diagnostics
-			ParseAll();
+			RefreshWorkspace();
 
 			// Send beef/initialized
 			Json json = .Object();
@@ -167,9 +167,15 @@ namespace BeefLsp {
 			Send("beef/initialized", json);
 		}
 
-		private void ParseAll(bool refreshSemanticTokens = false) {
+		private void OnSettings(Json args) {
+			Log.Info("OnSettings: debugLogging - {}", args["debugLogging"]);
+			Log.MIN_LEVEL = args.GetBool("debugLogging") ? .Debug : .Info;
+		}
+
+		private void RefreshWorkspace(bool refreshSemanticTokens = false) {
 			app.LockSystem!();
 
+			Log.Info("Refreshing workspace");
 			Send("beef/classifyBegin", .Null());
 
 			BfPassInstance pass = app.mBfBuildSystem.CreatePassInstance("IntialParse");
@@ -1368,7 +1374,7 @@ namespace BeefLsp {
 					app.mWorkspace.FixOptions();
 					app.SaveWorkspaceUserDataCustom();
 		
-					ParseAll(true);
+					RefreshWorkspace(true);
 				}
 			}
 
@@ -1551,7 +1557,7 @@ namespace BeefLsp {
 				// Save config
 				if (changed) {
 					project.Save();
-					ParseAll(true);
+					RefreshWorkspace(true);
 				}
 			}
 			else if (id == "workspace") {
@@ -1570,7 +1576,7 @@ namespace BeefLsp {
 				// Save config
 				if (changed) {
 					app.[Friend]SaveWorkspace();
-					ParseAll(true);
+					RefreshWorkspace(true);
 				}
 			}
 			// Unknown id
@@ -1656,6 +1662,7 @@ namespace BeefLsp {
 
 			case "workspace/symbol":                  HandleRequest(json, OnWorkspaceSymbol(args));
 
+			case "beef/settings":                     OnSettings(args);
 			case "beef/changeConfiguration":          HandleRequest(json, OnChangeConfiguration(args));
 			case "beef/build":                        HandleRequest(json, OnBuild());
 			case "beef/projects":                  	  HandleRequest(json, OnProjects());
@@ -1683,21 +1690,6 @@ namespace BeefLsp {
 
 			Send(response);
 			response.Dispose();
-		}
-
-		private int requestId = 0;
-
-		private void Send(StringView method, Json json, bool request = false) {
-			Json notification = .Object();
-
-			notification["jsonrpc"] = .String("2.0");
-			notification["method"] = .String(method);
-			notification["params"] = json;
-
-			if (request) notification["id"] = .Number(requestId++);
-
-			Send(notification);
-			notification.Dispose();
 		}
 	}
 }

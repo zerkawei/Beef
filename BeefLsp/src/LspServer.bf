@@ -5,6 +5,7 @@ namespace BeefLsp {
 		private IConnection connection ~ delete _;
 
 		private int contentsSize = 0;
+		private int requestId = 0;
 
 		public void StartStdio() {
 			Log.Info("Starting server on stdio");
@@ -14,7 +15,7 @@ namespace BeefLsp {
 		}
 
 		public void StartTcp(int port) {
-			Log.SetupStdio();
+			Log.AddLogger(new ConsoleLogger());
 			Log.Info("Starting server on port {}", port);
 
 			connection = new TcpConnection(this, port);
@@ -24,6 +25,8 @@ namespace BeefLsp {
 		public void Stop() {
 			connection.Stop();
 		}
+
+		public bool IsOpen => connection != null && connection.IsOpen;
 
 		protected abstract void OnMessage(Json json);
 
@@ -43,7 +46,22 @@ namespace BeefLsp {
 			connection.Send(data, size).IgnoreError();
 		}
 
+		public void Send(StringView method, Json json, bool request = false) {
+			Json notification = .Object();
+
+			notification["jsonrpc"] = .String("2.0");
+			notification["method"] = .String(method);
+			notification["params"] = json;
+
+			if (request) notification["id"] = .Number(requestId++);
+
+			Send(notification);
+			notification.Dispose();
+		}
+
 		private void Start() {
+			Log.AddLogger(new LspLogger(this));
+
 			// Connect
 			Log.Info("Connecting to a client");
 

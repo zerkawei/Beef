@@ -78,10 +78,16 @@ namespace BeefLsp {
 
 		private void LoadWorkspaceUserDataCustom() {
 			String path = scope .();
-			if (![Friend]GetWorkspaceUserDataFileName(path)) return;
+			if (![Friend]GetWorkspaceUserDataFileName(path)) {
+				Log.Error("Failed to get workspace user data file path");
+				return;
+			}
 
 			StructuredData sd = scope .();
-			sd.Load(path);
+			if (sd.Load(path) case .Err(let err)) {
+				Log.Error("Failed to load workspace user data at '{}': {}", path, err.ToString(.. scope .()));
+				return;
+			}
 
 			String configName = sd.GetString("LastConfig", .. scope .());
 			if (!configName.IsEmpty) mConfigName.Set(configName);
@@ -92,17 +98,58 @@ namespace BeefLsp {
 
 		public void SaveWorkspaceUserDataCustom() {
 			String path = scope .();
-			if (![Friend]GetWorkspaceUserDataFileName(path)) return;
+			if (![Friend]GetWorkspaceUserDataFileName(path)) {
+				Log.Error("Failed to get workspace user data file path");
+				return;
+			}
 
 			StructuredData sd = scope .();
-			sd.Load(path);
+			if (sd.Load(path) case .Err(let err)) {
+				Log.Error("Failed to load workspace user data at '{}': {}", path, err.ToString(.. scope .()));
+				return;
+			}
 
 			Object config;
 			sd.TryGet("LastConfig", out config);
 			((String) config).Set(mConfigName);
 
 			String data = sd.ToTOML(.. scope .());
-			SafeWriteTextFile(path, data, false);
+			if (!SafeWriteTextFile(path, data, false)) Log.Error("Failed to write workspace suer data at '{}'", path);
+		}
+
+		// Logging
+
+		public override void Output(String outStr) {
+			Log.Info(outStr);
+		}
+
+		public override void OutputSmart(String outStr) {
+			Log.Info(outStr);
+		}
+
+		public override void Output(String format, params Object[] args) {
+			Log.Info(format, params args);
+		}
+
+		public override void OutputLine(String format, params Object[] args) {
+			Log.Info(format, params args);
+		}
+
+		public override void OutputErrorLine(String format, params Object[] args) {
+			Log.Error(format, params args);
+		}
+
+		public override void OutputWarnLine(String format, params Object[] args) {
+			Log.Warning(format, params args);
+		}
+
+		public override void OutputLineSmart(String format, params Object[] args) {
+			if (format.StartsWith("ERROR:")) Log.Error(format, params args);
+			else Log.Info(format, params args);
+		}
+
+		public override void OutputFormatted(String str, bool isDbgEvalOutput = false) {
+			Log.Info(str);
 		}
 	}
 }

@@ -65,7 +65,7 @@ namespace BeefLsp {
 			}
 
 #if !BF_PLATFORM_WINDOWS
-			buffer.AppendF($"file://{filePath}");
+			buffer.AppendF($"file://{path}");
 #else
 			buffer.AppendF($"file:///{path}");
 #endif

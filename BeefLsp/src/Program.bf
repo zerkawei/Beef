@@ -7,7 +7,7 @@ namespace BeefLsp {
 		public static void Main(String[] args) {
 			for (let arg in args) {
 				if (arg == "--logDebug") {
-					Log.LogDebug = true;
+					Log.MIN_LEVEL = .Debug;
 				}
 
 				if (arg == "-h" || arg == "--help") {
