@@ -42,6 +42,8 @@ namespace BeefLsp {
 	}
 	
 	class BeefLspServer : LspServer {
+		public const String VERSION = "0.1.0";
+
 		private LspApp app = new .() ~ delete _;
 
 		private DocumentManager documents = new .() ~ delete _;
@@ -151,7 +153,7 @@ namespace BeefLsp {
 			Json info = .Object();
 			res["serverInfo"] = info;
 			info["name"] = .String("beef-lsp");
-			info["version"] = .String("0.1.0");
+			info["version"] = .String(VERSION);
 
 			return res;
 		}
@@ -168,7 +170,6 @@ namespace BeefLsp {
 		}
 
 		private void OnSettings(Json args) {
-			Log.Info("OnSettings: debugLogging - {}", args["debugLogging"]);
 			Log.MIN_LEVEL = args.GetBool("debugLogging") ? .Debug : .Info;
 		}
 
