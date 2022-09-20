@@ -1220,6 +1220,11 @@ namespace BeefLsp {
 		private void GetSemanticTokens(Document document, String buffer) {
 			Span<EditWidgetContent.CharData> data = document.GetCharData();
 
+			if (data.IsEmpty) {
+				buffer.Append("[]");
+				return;
+			}
+
 			buffer.Append('[');
 
 			int line = 0;
