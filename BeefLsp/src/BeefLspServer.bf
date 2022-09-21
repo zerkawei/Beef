@@ -170,7 +170,9 @@ namespace BeefLsp {
 		}
 
 		private void OnSettings(Json args) {
-			Log.MIN_LEVEL = args.GetBool("debugLogging") ? .Debug : .Info;
+			if (Log.MIN_LEVEL != .Debug) {
+				Log.MIN_LEVEL = args.GetBool("debugLogging") ? .Debug : .Info;
+			}
 		}
 
 		private void RefreshWorkspace(bool refreshSemanticTokens = false) {
@@ -1385,13 +1387,99 @@ namespace BeefLsp {
 			return json;
 		}
 
-		private Result<Json, Error> OnBuild() {
-			app.[Friend]Compile(.Normal, null);
-			app.mBfBuildCompiler.ProcessQueue();
+		private Result<Json, Error> OnBuild(Json args) {
+			Log.Info("Building workspace");
 
-			app.[Friend]mExecutionQueue.Clear();
+			// Create process start info
+			ProcessStartInfo psi = scope .();
 
-			return Json.Null();
+			psi.UseShellExecute = false;
+			psi.CreateNoWindow = true;
+			psi.RedirectStandardOutput = true;
+			psi.SetWorkingDirectory(app.mWorkspace.mDir);
+			psi.SetFileName("BeefBuild");
+
+			String arguments = scope .();
+
+			arguments.Append(" -verbosity=minimal");
+			arguments.AppendF(" -config={}", app.mConfigName);
+			arguments.AppendF(" -platform={}", app.mPlatformName);
+			if (args.GetBool("clean")) arguments.Append(" -clean");
+
+			psi.SetArguments(arguments);
+
+			// Spawn process
+			SpawnedProcess process = scope .();
+
+			if (process.Start(psi) == .Err) {
+				Log.Error("Failed to start BeefBuild process");
+
+				Json json = .Object();
+				json["error"] = .String("Failed to start BeefBuild process");
+				return json;
+			}
+
+			FileStream outFs = scope .();
+			process.AttachStandardOutput(outFs);
+
+			// Wait for process to finish
+			process.WaitFor();
+
+			// Create json
+			Json json = .Object();
+
+			json["exitCode"] = .Number(process.ExitCode);
+
+			StreamReader outSr = scope .(outFs);
+			Json lines = .Array();
+			json["lines"] = lines;
+
+			for (let line in outSr.Lines) lines.Add(.String(line));
+
+			if (process.ExitCode == 0) lines.Add(.String("Compile succeed."));
+
+			return json;
+		}
+
+		private Result<Json, Error> OnRun(Json args) {
+			// Get project
+			Project project = null;
+
+			if (args["project"].AsString == "_Startup_") project = app.mWorkspace.mStartupProject;
+			else project = app.mWorkspace.mProjectNameMap.GetValueOrDefault(args["project"].AsString);
+
+			if (project == null) return .Err(new .(0, "Unknown project '{}'", args["project"]));
+
+			// Get data
+			Workspace.Options workspaceOptions = app.GetCurWorkspaceOptions();
+			Project.Options options = app.GetCurProjectOptions(project);
+
+			String target = scope .();
+			app.ResolveConfigString(gApp.mPlatformName, workspaceOptions, project, options, "$(TargetPath)", "target path", target);
+			IDEUtils.FixFilePath(target, '/', '\\');
+
+			String arguments = scope .();
+			app.ResolveConfigString(gApp.mPlatformName, workspaceOptions, project, options, "$(Arguments)", "arguments", arguments);
+
+			String workingDir = scope .();
+			app.ResolveConfigString(gApp.mPlatformName, workspaceOptions, project, options, "$(WorkingDir)", "working directory", workingDir);
+			IDEUtils.FixFilePath(workingDir, '/', '\\');
+
+			// Create json
+			Json json = .Object();
+
+			json["target"] = .String(target);
+			json["arguments"] = .String(arguments);
+			json["workingDir"] = .String(workingDir);
+
+			Json env = .Array();
+			json["env"] = env;
+
+			for (let variable in options.mDebugOptions.mEnvironmentVars) {
+				env.Add(.String(variable));
+			}
+
+			return json;
 		}
 
 		private Result<Json, Error> OnProjects() {
@@ -1665,7 +1753,8 @@ namespace BeefLsp {
 
 			case "beef/settings":                     OnSettings(args);
 			case "beef/changeConfiguration":          HandleRequest(json, OnChangeConfiguration(args));
-			case "beef/build":                        HandleRequest(json, OnBuild());
+			case "beef/build":                        HandleRequest(json, OnBuild(args));
+			case "beef/run":                          HandleRequest(json, OnRun(args));
 			case "beef/projects":                  	  HandleRequest(json, OnProjects());
 			case "beef/configurations":               HandleRequest(json, OnConfigurations());
 			case "beef/settingsSchema":               HandleRequest(json, OnSettingsSchema(args));

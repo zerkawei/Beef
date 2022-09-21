@@ -1,7 +1,9 @@
 const fs = require("fs");
 const yaml = require("js-yaml");
 
-let rawContents = fs.readFileSync("syntaxes/beef.yaml");
+const name = "beef";
+
+let rawContents = fs.readFileSync("syntaxes/" + name + ".yaml");
 let contents = yaml.load(rawContents);
 
 function preprocess(object) {
@@ -28,4 +30,4 @@ function preprocess(object) {
 preprocess(contents);
 delete contents["regex"];
 
-fs.writeFileSync("syntaxes/beef.tmLanguage.json", JSON.stringify(contents, null, 4));
+fs.writeFileSync("syntaxes/" + name + ".tmLanguage.json", JSON.stringify(contents, null, 4));

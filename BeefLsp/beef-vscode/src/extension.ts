@@ -4,6 +4,7 @@ import { LanguageClient, LanguageClientOptions, ServerOptions, StreamInfo } from
 import { registerCommands } from "./commands";
 import { InitializedArgs } from "./types";
 import { registerSettingsView } from "./settingsView";
+import { registerTasks } from "./tasks";
 
 const devTcp = true;
 
@@ -27,6 +28,7 @@ export class Extension {
 
         // Register
         registerCommands(this);
+        registerTasks(this);
 
         registerSettingsView(this, "workspace", false);
         registerSettingsView(this, "project", true);
@@ -117,6 +119,10 @@ export class Extension {
             if (onlyIfRunning) this.onlyIfRunning(() => callback(this));
             else callback(this);
         }, this));
+    }
+
+    disposable(disposable: vscode.Disposable) {
+        this.context.subscriptions.push(disposable);
     }
 
     private onlyIfRunning(callback: () => void) {
