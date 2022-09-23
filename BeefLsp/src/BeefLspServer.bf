@@ -51,6 +51,7 @@ namespace BeefLsp {
 
 		private int[] tokenTypeIds = new .[Enum.GetCount<TokenType>()] ~ delete _;
 
+		private bool markdown = false;
 		private bool documentChanges = false;
 
 		public void Start(String[] args) {
@@ -181,6 +182,14 @@ namespace BeefLsp {
 		}
 
 		private void GetClientCapabilities(Json cap) {
+			// General
+			Json general = cap["general"];
+
+			if (general.IsObject) {
+				markdown = general.Contains("markdown");
+			}
+
+			// Workspace
 			Json workspace = cap["workspace"];
 
 			if (workspace.IsObject) {
@@ -576,7 +585,7 @@ namespace BeefLsp {
 					Json contents = .Object();
 					json["documentation"] = contents;
 					contents["kind"] = .String("markdown");
-					contents["value"] = .String(documentation.ToString("", true, .. scope .()));
+					contents["value"] = .String(documentation.ToString("", markdown, .. scope .()));
 				}
 
 				// Detail
@@ -826,7 +835,7 @@ namespace BeefLsp {
 					Json contents = .Object();
 					jsonSignature["documentation"] = contents;
 					contents["kind"] = .String("markdown");
-					contents["value"] = .String(documentation.ToString("", true, .. scope .()));
+					contents["value"] = .String(documentation.ToString("", markdown, .. scope .()));
 				}
 
 				// Label
@@ -844,7 +853,7 @@ namespace BeefLsp {
 					StringView name = parameter.Substring(parameter.LastIndexOf(' ') + 1);
 					if (name.EndsWith(',')) name.Length--;
 
-					StringView doc = documentation.ToStringParameter(name, true, .. scope .());
+					StringView doc = documentation.ToStringParameter(name, markdown, .. scope .());
 
 					if (!doc.IsEmpty) {
 						Json contents = .Object();
@@ -900,7 +909,7 @@ namespace BeefLsp {
 			Json contents = .Object();
 			json["contents"] = contents;
 			contents["kind"] = .String("markdown");
-			contents["value"] = .String(documentation.ToString(hover, true, .. scope .()));
+			contents["value"] = .String(documentation.ToString(hover, markdown, .. scope .()));
 
 			return json;
 		}
