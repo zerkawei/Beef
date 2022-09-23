@@ -123,13 +123,14 @@ namespace System {
 		}
 	}
 
-	extension Result<T, TErr> where TErr : BeefLsp.Error {
+	extension Result<T, TErr> where TErr : BeefLsp.Error, delete {
 		public mixin GetValueOrLog(T defaultValue) {
 			T value;
 
 			if (this case .Err(let err)) {
 				BeefLsp.Log.Error("Error: {}", err.message);
 				value = defaultValue;
+				delete err;
 			}
 			else value = Value;
 

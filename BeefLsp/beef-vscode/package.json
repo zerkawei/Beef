@@ -7,7 +7,7 @@
   "repository": "github:MineGame159/Beef",
   "icon": "images/icon.png",
   "engines": {
-    "vscode": "^1.70.0"
+    "vscode": "^1.71.0"
   },
   "categories": [
     "Programming Languages"

@@ -51,6 +51,8 @@ namespace BeefLsp {
 
 		private int[] tokenTypeIds = new .[Enum.GetCount<TokenType>()] ~ delete _;
 
+		private bool documentChanges = false;
+
 		public void Start(String[] args) {
 			app.Init();
 			app.fileWatcher.parseCallback = new => PublishDiagnostics;
@@ -71,6 +73,8 @@ namespace BeefLsp {
 		private Result<Json, Error> OnInitialize(Json args) {
 			StringView workspacePath = args["rootPath"].AsString; // TODO: Also check rootUri which should have higher priority
 			app.LoadWorkspace(workspacePath);
+
+			GetClientCapabilities(args["capabilities"]);
 
 			// Response
 			Json res = .Object();
@@ -149,6 +153,24 @@ namespace BeefLsp {
 				i++;
 			}
 
+			//     Did create
+			Json didCreate = .Object();
+			Json workspace = cap["workspace"] = .Object();
+			Json fileOperations = workspace["fileOperations"] = .Object();
+			fileOperations["didCreate"] = didCreate;
+
+			Json filters = .Array();
+			didCreate["filters"] = filters;
+
+			Json filter = .Object();
+			filters.Add(filter);
+
+			Json pattern = .Object();
+			filter["pattern"] = pattern;
+
+			pattern["glob"] = .String("**/*.bf");
+			pattern["matches"] = .String("file");
+
 			// Server Info
 			Json info = .Object();
 			res["serverInfo"] = info;
@@ -156,6 +178,18 @@ namespace BeefLsp {
 			info["version"] = .String(VERSION);
 
 			return res;
+		}
+
+		private void GetClientCapabilities(Json cap) {
+			Json workspace = cap["workspace"];
+
+			if (workspace.IsObject) {
+				Json workspaceEdit = workspace["workspaceEdit"];
+
+				if (workspaceEdit.IsObject) {
+					documentChanges = workspaceEdit.GetBool("documentChanges");
+				}
+			}
 		}
 
 		private void OnInitialized() {
@@ -1099,6 +1133,88 @@ namespace BeefLsp {
 			return symbols;
 		}
 
+		private void OnDidCreateFiles(Json args) {
+			for (let file in args["files"].AsArray) {
+				// Get path
+				String path = Utils.GetPath(file["uri"].AsString, scope .()).GetValueOrLog!("");
+				if (path.IsEmpty) continue;
+
+				// Get text
+				ProjectSource source = app.FindProjectSourceItem(path);
+				if (source == null) continue;
+
+				String namespace_ = scope .();
+
+				source.mParentFolder.GetRelDir(namespace_);
+				namespace_.Replace('/', '.');
+				namespace_.Replace('\\', '.');
+				namespace_.Replace(" ", "");
+
+				if (namespace_.StartsWith("src.")) {
+				    namespace_.Remove(0, 4);
+
+					if (!source.mProject.mBeefGlobalOptions.mDefaultNamespace.IsWhiteSpace) {
+						namespace_.Insert(0, ".");
+						namespace_.Insert(0, source.mProject.mBeefGlobalOptions.mDefaultNamespace);
+					}
+				}
+				else {
+					namespace_.Set(source.mProject.mBeefGlobalOptions.mDefaultNamespace);
+				}
+
+				String text = scope $"""
+					namespace {namespace_};
+
+					class {source.mName[0...source.mName.LastIndexOf('.') - 1]}
+					{{
+					}}
+					""";
+
+				// Create json
+				Json json = .Object();
+
+				json["label"] = .String("New File");
+
+				Json edit = .Object();
+				json["edit"] = edit;
+
+				if (documentChanges) {
+					Json documentChanges = .Array();
+					edit["documentChanges"] = documentChanges;
+
+					Json documentEdit = .Object();
+					documentChanges.Add(documentEdit);
+
+					Json document = .Object();
+					documentEdit["textDocument"] = document;
+
+					document["uri"] = .String(Utils.GetUri!(path).Value);
+					document["version"] = .Null();
+
+					Json changes = .Array();
+					documentEdit["edits"] = changes;
+
+					Json change = .Object();
+					changes.Add(change);
+
+					change["range"] = Range(0, 0, 0, 0);
+					change["newText"] = .String(text);
+				}
+				else {
+					Json changes = .Object();
+					edit["changes"] = changes;
+
+					Json change = .Object();
+					changes[Utils.GetUri!(path).Value] = change;
+
+					change["range"] = Range(0, 0, 0, 0);
+					change["newText"] = .String(text);
+				}
+
+				Send("workspace/applyEdit", json, true);
+			}
+		}
+
 		private Result<Json, Error> OnRename(Json args) {
 			// Get path
 			String path = Utils.GetPath!(args).GetValueOrPassthrough!<Json>();
@@ -1750,6 +1866,7 @@ namespace BeefLsp {
 			case "textDocument/formatting":           HandleRequest(json, OnFormatting(args));
 
 			case "workspace/symbol":                  HandleRequest(json, OnWorkspaceSymbol(args));
+			case "workspace/didCreateFiles":          OnDidCreateFiles(args);
 
 			case "beef/settings":                     OnSettings(args);
 			case "beef/changeConfiguration":          HandleRequest(json, OnChangeConfiguration(args));
