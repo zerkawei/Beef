@@ -73,8 +73,19 @@ static class ProjectSettings {
 		// Setup
 		DEPENDENCIES.Clear();
 
+		List<String> projectNames = scope .();
 		for (let proj in workspace.mProjects) {
-			if (proj == project) continue;
+			if (proj != project) projectNames.Add(proj.mProjectName);
+		}
+
+		for (let dep in project.mDependencies) {
+		    if (!projectNames.Contains(dep.mProjectName)) projectNames.Add(dep.mProjectName);
+		}
+
+		projectNames.Sort(scope (a, b) => String.Compare(a, b, true));
+
+		for (let projectName in projectNames) {
+			Project proj = workspace.FindProject(projectName);
 
 			DEPENDENCIES.Add(new BoolSetting<Target>(
 				proj.mProjectName,
@@ -151,55 +162,55 @@ static class ProjectSettings {
 
 		// Platform Windows
 		PLATFORM_WINDOWS.Add(new StringSetting<Target>(
-			"Resources/Icon File",
+			"Resources;Icon File",
 			new (target) => target.project.mWindowsOptions.mIconFile,
 			new (target, value) => target.project.mWindowsOptions.mIconFile.Set(value)
 		));
 
 		PLATFORM_WINDOWS.Add(new StringSetting<Target>(
-			"Resources/Manifest File",
+			"Resources;Manifest File",
 			new (target) => target.project.mWindowsOptions.mManifestFile,
 			new (target, value) => target.project.mWindowsOptions.mManifestFile.Set(value)
 		));
 
 		PLATFORM_WINDOWS.Add(new StringSetting<Target>(
-			"Version/Description",
+			"Version;Description",
 			new (target) => target.project.mWindowsOptions.mDescription,
 			new (target, value) => target.project.mWindowsOptions.mDescription.Set(value)
 		));
 
 		PLATFORM_WINDOWS.Add(new StringSetting<Target>(
-			"Version/Comments",
+			"Version;Comments",
 			new (target) => target.project.mWindowsOptions.mComments,
 			new (target, value) => target.project.mWindowsOptions.mComments.Set(value)
 		));
 
 		PLATFORM_WINDOWS.Add(new StringSetting<Target>(
-			"Version/Company",
+			"Version;Company",
 			new (target) => target.project.mWindowsOptions.mCompany,
 			new (target, value) => target.project.mWindowsOptions.mCompany.Set(value)
 		));
 
 		PLATFORM_WINDOWS.Add(new StringSetting<Target>(
-			"Version/Product",
+			"Version;Product",
 			new (target) => target.project.mWindowsOptions.mProduct,
 			new (target, value) => target.project.mWindowsOptions.mProduct.Set(value)
 		));
 
 		PLATFORM_WINDOWS.Add(new StringSetting<Target>(
-			"Version/Copyright",
+			"Version;Copyright",
 			new (target) => target.project.mWindowsOptions.mCopyright,
 			new (target, value) => target.project.mWindowsOptions.mCopyright.Set(value)
 		));
 
 		PLATFORM_WINDOWS.Add(new StringSetting<Target>(
-			"Version/File Version",
+			"Version;File Version",
 			new (target) => target.project.mWindowsOptions.mFileVersion,
 			new (target, value) => target.project.mWindowsOptions.mFileVersion.Set(value)
 		));
 
 		PLATFORM_WINDOWS.Add(new StringSetting<Target>(
-			"Version/Product Version",
+			"Version;Product Version",
 			new (target) => target.project.mWindowsOptions.mProductVersion,
 			new (target, value) => target.project.mWindowsOptions.mProductVersion.Set(value)
 		));
@@ -220,37 +231,37 @@ static class ProjectSettings {
 
 		// Beef Targeted
 		BEEF_T.Add(new StringListSetting<Target>(
-			"General/Preprocessor Macros",
+			"General;Preprocessor Macros",
 			new (target) => target.Options.mBeefOptions.mPreprocessorMacros,
 			new (target, value) => CopyListValues(value, target.Options.mBeefOptions.mPreprocessorMacros)
 		));
 
 		BEEF_T.Add(new EnumSetting<Target, RelocModel>(
-			"Code Generation/Reloc Model",
+			"Code Generation;Reloc Model",
 			new (target) => (RelocModel) target.Options.mBeefOptions.mRelocType,
 			new (target, value) => target.Options.mBeefOptions.mRelocType = (.) value
 		));
 
 		BEEF_T.Add(new EnumSetting<Target, PICLevel>(
-			"Code Generation/PIC Level",
+			"Code Generation;PIC Level",
 			new (target) => (PICLevel) target.Options.mBeefOptions.mPICLevel,
 			new (target, value) => target.Options.mBeefOptions.mPICLevel = (.) value
 		));
 
 		BEEF_T.Add(new EnumSetting<Target, OptimizationLevel>(
-			"Code Generation/Optimization Level",
+			"Code Generation;Optimization Level",
 			new (target) => OptimizationLevel.From(target.Options.mBeefOptions.mOptimizationLevel),
 			new (target, value) => target.Options.mBeefOptions.mOptimizationLevel = value.To()
 		));
 
 		BEEF_T.Add(new BoolSetting<Target>(
-			"Code Generation/Vectorize Loops",
+			"Code Generation;Vectorize Loops",
 			new (target) => target.Options.mBeefOptions.mVectorizeLoops,
 			new (target, value) => target.Options.mBeefOptions.mVectorizeLoops = value
 		));
 
 		BEEF_T.Add(new BoolSetting<Target>(
-			"Code Generation/Vectorize SLP",
+			"Code Generation;Vectorize SLP",
 			new (target) => target.Options.mBeefOptions.mVectorizeSLP,
 			new (target, value) => target.Options.mBeefOptions.mVectorizeSLP = value
 		));

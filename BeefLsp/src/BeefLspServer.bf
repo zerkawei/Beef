@@ -1618,6 +1618,8 @@ namespace BeefLsp {
 				projectJson["dir"] = .String(project.mProjectDir);
 			}
 
+			json.AsArray.Sort(scope (a, b) => String.Compare(a["name"].AsString, b["name"].AsString, true));
+
 			return json;
 		}
 

@@ -54,139 +54,139 @@ static class WorkspaceSettings {
 
 		// Beef Targeted
 		BEEF_T.Add(new StringListSetting<Target>(
-			"General/Preprocessor Macros",
+			"General;Preprocessor Macros",
 			new (target) => target.Options.mPreprocessorMacros,
 			new (target, value) => CopyListValues(value, target.Options.mPreprocessorMacros)
 		));
 
 		BEEF_T.Add(new BoolSetting<Target>(
-			"General/Incremental Build",
+			"General;Incremental Build",
 			new (target) => target.Options.mIncrementalBuild,
 			new (target, value) => target.Options.mIncrementalBuild = value
 		));
 
 		BEEF_T.Add(new EnumSetting<Target, IntermediateType>(
-			"General/Intermediate Type",
+			"General;Intermediate Type",
 			new (target) => (IntermediateType) target.Options.mIntermediateType,
 			new (target, value) => target.Options.mIntermediateType = (.) value
 		));
 
 		BEEF_T.Add(new EnumSetting<Target, AllocType>(
-			"General/Memory Allocator",
+			"General;Memory Allocator",
 			new (target) => (AllocType) target.Options.mAllocType,
 			new (target, value) => target.Options.mAllocType = (.) value
 		));
 
 		BEEF_T.Add(new StringSetting<Target>(
-			"General/Custom Memory Allocator - Malloc",
+			"General;Custom Memory Allocator - Malloc",
 			new (target) => target.Options.mAllocMalloc,
 			new (target, value) => target.Options.mAllocMalloc.Set(value)
 		));
 
 		BEEF_T.Add(new StringSetting<Target>(
-			"General/Custom Memory Allocator - Free",
+			"General;Custom Memory Allocator - Free",
 			new (target) => target.Options.mAllocFree,
 			new (target, value) => target.Options.mAllocFree.Set(value)
 		));
 
 		BEEF_T.Add(new StringSetting<Target>(
-			"General/Target Triple",
+			"General;Target Triple",
 			new (target) => target.Options.mTargetTriple,
 			new (target, value) => target.Options.mTargetTriple.Set(value)
 		));
 
 		BEEF_T.Add(new StringSetting<Target>(
-			"General/Target CPU",
+			"General;Target CPU",
 			new (target) => target.Options.mTargetCPU,
 			new (target, value) => target.Options.mTargetCPU.Set(value)
 		));
 
 		BEEF_T.Add(new EnumSetting<Target, SIMDInstructions>(
-			"General/SIMD Instructions",
+			"General;SIMD Instructions",
 			new (target) => (SIMDInstructions) target.Options.mBfSIMDSetting,
 			new (target, value) => target.Options.mBfSIMDSetting = (.) value
 		));
 
 		BEEF_T.Add(new EnumSetting<Target, OptimizationLevel>(
-			"General/Optimization Level",
+			"General;Optimization Level",
 			new (target) => (OptimizationLevel) target.Options.mBfOptimizationLevel,
 			new (target, value) => target.Options.mBfOptimizationLevel = (.) value
 		));
 
 		BEEF_T.Add(new EnumSetting<Target, LTOType>(
-			"General/LTO Type",
+			"General;LTO Type",
 			new (target) => (LTOType) target.Options.mLTOType,
 			new (target, value) => target.Options.mLTOType = (.) value
 		));
 
 		BEEF_T.Add(new BoolSetting<Target>(
-			"General/No Omit Frame Pointers",
+			"General;No Omit Frame Pointers",
 			new (target) => target.Options.mNoOmitFramePointers,
 			new (target, value) => target.Options.mNoOmitFramePointers = value
 		));
 
 		BEEF_T.Add(new BoolSetting<Target>(
-			"General/Large Strings",
+			"General;Large Strings",
 			new (target) => target.Options.mLargeStrings,
 			new (target, value) => target.Options.mLargeStrings = value
 		));
 
 		BEEF_T.Add(new BoolSetting<Target>(
-			"General/Large Collections",
+			"General;Large Collections",
 			new (target) => target.Options.mLargeCollections,
 			new (target, value) => target.Options.mLargeCollections = value
 		));
 
 		BEEF_T.Add(new EnumSetting<Target, WorkspaceDebugInfo>(
-			"Debug/Debug Info",
+			"Debug;Debug Info",
 			new (target) => (WorkspaceDebugInfo) target.Options.mEmitDebugInfo,
 			new (target, value) => target.Options.mEmitDebugInfo = (.) value
 		));
 
 		BEEF_T.Add(new BoolSetting<Target>(
-			"Debug/Runtime Checks",
+			"Debug;Runtime Checks",
 			new (target) => target.Options.mRuntimeChecks,
 			new (target, value) => target.Options.mRuntimeChecks = value
 		));
 
 		BEEF_T.Add(new BoolSetting<Target>(
-			"Debug/Dynamic Cast Check",
+			"Debug;Dynamic Cast Check",
 			new (target) => target.Options.mEmitDynamicCastCheck,
 			new (target, value) => target.Options.mEmitDynamicCastCheck = value
 		));
 
 		BEEF_T.Add(new BoolSetting<Target>(
-			"Debug/Object Debug Flags",
+			"Debug;Object Debug Flags",
 			new (target) => target.Options.mEnableObjectDebugFlags,
 			new (target, value) => target.Options.mEnableObjectDebugFlags = value
 		));
 
 		BEEF_T.Add(new BoolSetting<Target>(
-			"Debug/Object Access Check",
+			"Debug;Object Access Check",
 			new (target) => target.Options.mEmitObjectAccessCheck,
 			new (target, value) => target.Options.mEmitObjectAccessCheck = value
 		));
 
 		BEEF_T.Add(new BoolSetting<Target>(
-			"Debug/Arithmetic Check",
+			"Debug;Arithmetic Check",
 			new (target) => target.Options.mArithmeticCheck,
 			new (target, value) => target.Options.mArithmeticCheck = value
 		));
 
 		BEEF_T.Add(new BoolSetting<Target>(
-			"Debug/Realtime Leak Check",
+			"Debug;Realtime Leak Check",
 			new (target) => target.Options.mEnableRealtimeLeakCheck,
 			new (target, value) => target.Options.mEnableRealtimeLeakCheck = value
 		));
 
 		BEEF_T.Add(new BoolSetting<Target>(
-			"Debug/Enable Hot Compilation",
+			"Debug;Enable Hot Compilation",
 			new (target) => target.Options.mAllowHotSwapping,
 			new (target, value) => target.Options.mAllowHotSwapping = value
 		));
 
 		BEEF_T.Add(new IntSetting<Target>(
-			"Debug/Alloc Stack Trace Depth",
+			"Debug;Alloc Stack Trace Depth",
 			new (target) => target.Options.mAllocStackTraceDepth,
 			new (target, value) => target.Options.mAllocStackTraceDepth = value
 		));

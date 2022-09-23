@@ -31,7 +31,7 @@
         sections = [];
 
         settings.forEach(setting => {
-            const sectionName = setting.name.includes("/") ? setting.name.substring(0, setting.name.indexOf("/")) : "";
+            const sectionName = setting.name.includes(";") ? setting.name.substring(0, setting.name.indexOf(";")) : "";
             const section = getSection(sectionName);
     
             section.settings.push(setting);
@@ -52,7 +52,7 @@
                         {#if $settingValues.isChanged($currentGroup, setting)}
                             <span class="changed">*</span>
                         {/if}
-                        <span>{setting.name.includes("/") ? setting.name.substring(setting.name.indexOf("/") + 1) : setting.name}</span>
+                        <span>{setting.name.includes(";") ? setting.name.substring(setting.name.indexOf(";") + 1) : setting.name}</span>
                     </div>
                     
                     <GlobalSetting group={$currentGroup} setting={setting} />
