@@ -36,4 +36,4 @@ Status: Alpha
  Either click on the `Beef Lsp: <configuration>` status bar item in bottom left of VS Code or using the command palette run `Beef: Change Configuration`
 
  - **How to build / run the project?**  
- Currently there is no functionality for this in the extension but you can use [BeefBuild](https://www.beeflang.org/docs/beefbuild/) from your terminal
+ The extension provides 2 custom task types `beef-build` and `beef-run` both with different properties. You can look at an example `.vscode/tasks.json` file [here](https://github.com/MineGame159/Beef/blob/lsp/BeefLsp/beef-vscode/.example_tasks.json).

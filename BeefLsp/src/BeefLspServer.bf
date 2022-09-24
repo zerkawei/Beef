@@ -42,7 +42,7 @@ namespace BeefLsp {
 	}
 	
 	class BeefLspServer : LspServer {
-		public const String VERSION = "0.1.0";
+		public const String VERSION = "0.1.1";
 
 		private LspApp app = new .() ~ delete _;
 

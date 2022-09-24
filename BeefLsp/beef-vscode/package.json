@@ -2,7 +2,7 @@
   "name": "beeflang",
   "displayName": "Beef Lang",
   "description": "Adds support for the Beef programming language.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "MineGame159",
   "repository": "github:MineGame159/Beef",
   "icon": "images/icon.png",
