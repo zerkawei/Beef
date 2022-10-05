@@ -401,6 +401,8 @@ namespace BeefLsp {
 
 				// Parse folding range
 				SourceEditWidgetContent.CollapseEntry.Kind kind = (.) line[0];
+				if (kind == .EmitAddType || kind == .Emit_Type || kind == .Emit_Method) continue;
+
 				line.RemoveFromStart(1);
 
 				var it = line.Split(',');
@@ -946,9 +948,16 @@ namespace BeefLsp {
 			// Create json
 			if (file.IsEmpty) return Json.Null();
 
+			if (file.StartsWith("$Emit$")) {
+				Log.Warning("Emits are not supported for definitions");
+				return Json.Null();
+			}
+
+			String uri = Utils.GetUri!(file).GetValueOrPassthrough!<Json>();
+
 			Json json = .Object();
 
-			json["uri"] = .String(Utils.GetUri!(file).GetValueOrPassthrough!<Json>());
+			json["uri"] = .String(uri);
 			json["range"] = Range(line, column, line, column);
 
 			return json;
