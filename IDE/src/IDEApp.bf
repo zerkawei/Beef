@@ -827,7 +827,7 @@ namespace IDE
 				mExecutionPaused = false;
 			}
 
-            base.Shutdown();                       
+            base.Shutdown();
         }
 
         public override void Run()
@@ -1295,7 +1295,7 @@ namespace IDE
 			void CloseTabs()
 			{
 				WithDocumentTabbedViewsOf(window, scope (tabbedView) => {
-					tabbedView.CloseTabs(false, true);
+					tabbedView.CloseTabs(false, true, true);
 				});
 			}
 
@@ -1750,6 +1750,7 @@ namespace IDE
 
                         data.Add("TabLabel", tabWidget.mLabel);
                         data.Add("TabWidth", tabWidget.mWantWidth / DarkTheme.sScale);
+						data.Add("TabIsPinned", tabWidget.mIsPinned);
 
 						if (var watchPanel = tabWidget.mContent as WatchPanel)
 						{
@@ -2760,6 +2761,8 @@ namespace IDE
 				mWorkspace.mLoading = false;
 			}
 
+			var startupProjectName = scope String();
+
             if (StructuredLoad(data, workspaceFileName) case .Err(let err))
             {
 				mBeefConfig.Refresh();
@@ -2870,7 +2873,6 @@ namespace IDE
 					LoadFailed();
 				}
 
-				var startupProjectName = scope String();
 				using (data.Open("Workspace"))
 				{
 					data.GetString("StartupProject", startupProjectName);
@@ -2906,10 +2908,6 @@ namespace IDE
 						switch (AddProject(projectName, projSpec.mVerSpec))
 						{
 						case .Ok(let project):
-							if ((!startupProjectName.IsEmpty) && (StringView.Compare(startupProjectName, projectName, true) == 0))
-							{
-								mWorkspace.mStartupProject = project;
-							}
 							project.mLocked = data.GetBool("Locked", project.mLockedDefault);
 						case .Err:
 							OutputLineSmart("ERROR: Unable to load project '{0}' specified in workspace", projectName);
@@ -2924,6 +2922,14 @@ namespace IDE
 			}
 
 			FlushDeferredLoadProjects();
+
+			for (var project in mWorkspace.mProjects)
+			{
+				if ((!startupProjectName.IsEmpty) && (StringView.Compare(startupProjectName, project.mProjectName, true) == 0))
+				{
+					mWorkspace.mStartupProject = project;
+				}
+			}
 
 			mWorkspace.FinishDeserialize(data);
             mWorkspace.FixOptions(mConfigName, mPlatformName);
@@ -3181,6 +3187,7 @@ namespace IDE
                 var newTabButton = new SourceViewTabButton();
                 newTabButton.Label = "";
                 data.GetString("TabLabel", newTabButton.mLabel);
+				newTabButton.mIsPinned = data.GetBool("TabIsPinned");
 				newTabButton.mOwnsContent = panel.mAutoDelete;
 				newTabButton.mTabWidthOffset = panel.TabWidthOffset;
                 //newTabButton.mWantWidth = (float)Math.Round(data.GetFloat("TabWidth") * DarkTheme.sScale);
@@ -6246,9 +6253,22 @@ namespace IDE
 		int GetTabInsertIndex(TabbedView tabs)
 		{
 			if (mSettings.mUISettings.mInsertNewTabs == .RightOfExistingTabs)
+			{
 				return tabs.mTabs.Count;
-			else
-				return 0;
+			}
+
+			// Find right-most non-pinned tab
+			// after which we will put our new tab
+			int index = 0;
+			for (index = 0; index < tabs.mTabs.Count; index++)
+			{
+				if (tabs.mTabs[index].mIsPinned == false)
+				{
+					break;
+				}
+			}
+
+			return index;
 		}
 
         public class SourceViewTabButton : DarkTabbedView.DarkTabButton
@@ -6335,6 +6355,12 @@ namespace IDE
 
             public override void MouseDown(float x, float y, int32 btn, int32 btnCount)
             {
+				if ((mIsRightTab) && (btn == 0) && (btnCount > 1))
+				{
+					IDEApp.sApp.MakeTabPermanent(this);
+					return;
+				}
+
                 base.MouseDown(x, y, btn, btnCount);
 
 				if (btn == 1)
@@ -6373,7 +6399,21 @@ namespace IDE
 						item = menu.AddItem("Close All Except This");
 						item.mOnMenuItemSelected.Add(new (menu) =>
 							{
-								mTabbedView.CloseTabs(false, false);
+								mTabbedView.CloseTabs(false, false, true);
+							});
+						item = menu.AddItem("Close All Except Pinned");
+						item.mOnMenuItemSelected.Add(new (menu) =>
+							{
+								mTabbedView.CloseTabs(false, true, false);
+							});
+
+						item = menu.AddItem(this.mIsPinned ? "Unpin Tab" : "Pin Tab");
+						item.mOnMenuItemSelected.Add(new (menu) =>
+							{
+								if (mIsRightTab)
+									IDEApp.sApp.MakeTabPermanent(this);
+
+								mTabbedView.TogglePinned(this);
 							});
 					}
 
@@ -6386,11 +6426,6 @@ namespace IDE
 					else
 						delete menu;
 				}
-                
-                if ((mIsRightTab) && (btn == 0) && (btnCount > 1))
-                {
-                    IDEApp.sApp.MakeTabPermanent(this);
-                }
             }
 
             public override void Update()
@@ -8547,14 +8582,14 @@ namespace IDE
 			if (executionInstance.mProcess.AttachStandardInput(fileStream) case .Err)
 				return;
 			
-			while (!executionInstance.mStdInData.IsEmpty)
+			WriteLoop: while (!executionInstance.mStdInData.IsEmpty)
 			{
 				switch (fileStream.TryWrite(.((.)executionInstance.mStdInData.Ptr, executionInstance.mStdInData.Length)))
 				{
 				case .Ok(int len):
 					executionInstance.mStdInData.Remove(0, len);
 				case .Err:
-					break;
+					break WriteLoop;
 				}
 			}
 		}
@@ -8712,6 +8747,8 @@ namespace IDE
 
                 	if ((mVerbosity >= .Diagnostic) && (useArgsFile != .None))
                 		OutputLine("Arg file contents: {0}", args);
+					if ((mVerbosity >= .Diagnostic) && (stdInData != null))
+						OutputLine("StdIn data: {0}", stdInData);
                 }
 				else
 					OutputLine("Executing: {0}", showArgs);
