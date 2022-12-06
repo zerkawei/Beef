@@ -817,6 +817,7 @@ namespace BeefLsp {
 				Json jsonSignature = .Object();
 				jsonSignatures.Add(jsonSignature);
 
+				StringView withoutDocs = signature;
 				StringView label = scope String(signature)..Replace("\x01", "");
 
 				// Documentation
@@ -826,6 +827,7 @@ namespace BeefLsp {
 				if (docI != -1) {
 					String docs = Utils.CleanDocumentation(label.Substring(docI + 1), .. scope:loop .());
 					label = label[0...docI - 1];
+					withoutDocs = withoutDocs[0...withoutDocs.IndexOf('\x03') - 1];
 					
 					documentation.Parse(docs);
 
@@ -842,7 +844,7 @@ namespace BeefLsp {
 				Json jsonParameters = .Array();
 				jsonSignature["parameters"] = jsonParameters;
 
-				for (let parameter in signature[signature.IndexOf('(') + 1...signature.LastIndexOf(')') - 1].Split('\x01', .RemoveEmptyEntries)) {
+				for (let parameter in withoutDocs[withoutDocs.IndexOf('(') + 1...withoutDocs.LastIndexOf(')') - 1].Split('\x01', .RemoveEmptyEntries)) {
 					Json jsonParameter = .Object();
 					jsonParameters.Add(jsonParameter);
 
