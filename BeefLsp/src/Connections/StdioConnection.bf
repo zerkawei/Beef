@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading;
 
 namespace BeefLsp {
@@ -33,10 +34,9 @@ namespace BeefLsp {
 
 		public void Stop() {
 			open = false;
+			waitEvent.Set(true);
 
 			thread.Join();
-
-			waitEvent.Set(true);
 		}
 
 		public Result<RecvBuffer> WaitForData() {
@@ -60,8 +60,11 @@ namespace BeefLsp {
 			uint8* data = new:ScopedAlloc! .[4096]*;
 
 			while (open) {
+				// TODO: Find a way to not block the thread infinitely while reading, eg a timeout
 				switch (Console.In.BaseStream.TryRead(.(data, 4096))) {
 				case .Ok(let received):
+					if (received <= 0) continue;
+
 					bufferMonitor.Enter();
 					buffer.Add(data, received);
 					bufferMonitor.Exit();
@@ -70,6 +73,7 @@ namespace BeefLsp {
 
 				case .Err:
 					open = false;
+					waitEvent.Set(true);
 				}
 			}
 		}

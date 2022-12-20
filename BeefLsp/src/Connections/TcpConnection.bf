@@ -36,7 +36,7 @@ namespace BeefLsp {
 			listener.Blocking = true;
 
 			client = new .();
-			client.Blocking = true;
+			client.Blocking = false;
 
 			// Connect
 			if (listener.Listen(5556) == .Err) return .Err;
@@ -53,13 +53,12 @@ namespace BeefLsp {
 
 		public void Stop() {
 			open = false;
+			waitEvent.Set(true);
 			
-			listener.Close();
-			client.Close();
-
 			thread.Join();
 
-			waitEvent.Set(true);
+			listener.Close();
+			client.Close();
 		}
 
 		public Result<RecvBuffer> WaitForData() {
@@ -83,8 +82,16 @@ namespace BeefLsp {
 			uint8* data = new:ScopedAlloc! .[4096]*;
 
 			while (open) {
+				Socket.FDSet readSet = .();
+				readSet.Add(client.NativeSocket);
+
+				int32 count = Socket.Select(&readSet, null, null, 1000);
+				if (count <= 0) continue;
+
 				switch (client.Recv(data, 4096)) {
 				case .Ok(let received):
+					if (received <= 0) continue;
+
 					bufferMonitor.Enter();
 					buffer.Add(data, received);
 					bufferMonitor.Exit();
@@ -93,6 +100,7 @@ namespace BeefLsp {
 
 				case .Err:
 					open = false;
+					waitEvent.Set(true);
 				}
 			}
 		}

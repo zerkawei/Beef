@@ -1,10 +1,11 @@
 import * as vscode from "vscode";
 import * as net from "net";
-import { LanguageClient, LanguageClientOptions, ServerOptions, StreamInfo } from "vscode-languageclient/node";
+import { LanguageClient, LanguageClientOptions, ServerOptions, StreamInfo, TransportKind } from "vscode-languageclient/node";
 import { registerCommands } from "./commands";
 import { InitializedArgs } from "./types";
 import { registerSettingsView } from "./settingsView";
 import { registerTasks } from "./tasks";
+import { execFile } from "child_process";
 
 const devTcp = true;
 
@@ -35,40 +36,45 @@ export class Extension {
     }
 
     start() {
+        // TODO: Always use TCP transport since currently the STDIO one does not close properly
         let serverOptions: ServerOptions = {
             command: "BeefLsp"
         };
-    
-        if (this.context.extensionMode === vscode.ExtensionMode.Development && devTcp) {
-            serverOptions = () => {
-                let socket = net.createConnection({
-                    port: 5556
-                });
-        
-                let result: StreamInfo = {
-                    writer: socket,
-                    reader: socket
+
+        execFile("BeefLsp", [ "--port=5556" ]);
+        setTimeout(() => {
+            //if (this.context.extensionMode === vscode.ExtensionMode.Development && devTcp) {
+            if (true) {
+                serverOptions = () => {
+                    let socket = net.createConnection({
+                        port: 5556
+                    });
+            
+                    let result: StreamInfo = {
+                        writer: socket,
+                        reader: socket
+                    };
+            
+                    return Promise.resolve(result);
                 };
+            }
         
-                return Promise.resolve(result);
+            let clientOptions: LanguageClientOptions = {
+                documentSelector: [{ scheme: "file", language: "bf" }]
             };
-        }
-    
-        let clientOptions: LanguageClientOptions = {
-            documentSelector: [{ scheme: "file", language: "bf" }]
-        };
-    
-        this.client = new LanguageClient(
-            "beeflang",
-            "Beef Lang",
-            serverOptions,
-            clientOptions
-        );
+        
+            this.client = new LanguageClient(
+                "beeflang",
+                "Beef Lang",
+                serverOptions,
+                clientOptions
+            );
 
-        this.setBarItem("Starting", true);
-        this.barItem.show();
+            this.setBarItem("Starting", true);
+            this.barItem.show();
 
-        this.client.start().then(this.onReady.bind(this));
+            this.client.start().then(this.onReady.bind(this));
+        }, 1000);
     }
 
     private onReady() {
@@ -142,13 +148,12 @@ export class Extension {
     }
 
     async stop() {
+        if (this.client && this.client.isRunning()) {
+            await this.client.dispose();
+        }
+
         this.barItem.hide();
         this.initialized = false;
-
-        if (this.initialized && this.client.isRunning()) {
-            await this.client.dispose();
-            this.initialized = false;
-        }
     }
 }
 
