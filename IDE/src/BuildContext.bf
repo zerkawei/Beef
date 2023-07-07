@@ -16,6 +16,7 @@ namespace IDE
 		case DebugAfter;
 		case DebugComptime;
 		case Test;
+		case WhileRunning;
 
 		public bool WantsRunAfter
 		{
@@ -249,7 +250,13 @@ namespace IDE
 			}
 			else
 			{
-				arArgs.AppendF($"-qc {targetPath}");
+				arArgs.AppendF($"-qc ");
+				String fixedTargetPath = scope .(targetPath);
+				IDEUtils.FixFilePath(fixedTargetPath);
+#if BF_PLATFORM_WINDOWS
+				fixedTargetPath.Replace("\\", "\\\\");
+#endif
+				IDEUtils.AppendWithOptionalQuotes(arArgs, fixedTargetPath);
 
 				void AddObject(StringView obj)
 				{
@@ -257,7 +264,13 @@ namespace IDE
 						return;
 
 					arArgs.Append(" ");
-					arArgs.Append(obj);
+					
+					String fixedObjPath = scope .(obj);
+					IDEUtils.FixFilePath(fixedObjPath);
+#if BF_PLATFORM_WINDOWS
+					fixedObjPath.Replace("\\", "\\\\");
+#endif
+					IDEUtils.AppendWithOptionalQuotes(arArgs, fixedObjPath);
 				}
 
 				bool inQuote = false;
@@ -691,10 +704,10 @@ namespace IDE
 
 					compilerExePath.Append(@"/upstream/emscripten/emcc.bat");
 					//linkLine.Append(" c:\\Beef\\wasm\\BeefRT.a -s STRICT=1 -s USE_PTHREADS=1 -s ALIASING_FUNCTION_POINTERS=1 -s ASSERTIONS=0 -s DISABLE_EXCEPTION_CATCHING=0 -s DEMANGLE_SUPPORT=0 -s EVAL_CTORS=1 -s WASM=1 -s \"EXPORTED_FUNCTIONS=['_BeefMain','_BeefDone','_pthread_mutexattr_init','_pthread_mutex_init','_emscripten_futex_wake','_calloc','_sbrk']\"");
-					linkLine.Append("-s DISABLE_EXCEPTION_CATCHING=0 -s DEMANGLE_SUPPORT=0 -s WASM=1");
+					linkLine.Append("-s DISABLE_EXCEPTION_CATCHING=0 -s DEMANGLE_SUPPORT=0");
 
 					if (project.mWasmOptions.mEnableThreads)
-						linkLine.Append(" -s USE_PTHREADS=1");
+						linkLine.Append(" -pthread");
 
 					if (workspaceOptions.mEmitDebugInfo != .No)
 						linkLine.Append(" -g");

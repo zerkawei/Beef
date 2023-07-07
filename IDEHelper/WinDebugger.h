@@ -301,6 +301,12 @@ public:
 	addr_target mPtr;
 	int mOffset;
 	int mSize;
+
+public:
+	int GetSizeLeft()
+	{
+		return mSize - mOffset;
+	}
 };
 
 #define WD_MEMCACHE_SIZE 8*1024
@@ -578,6 +584,7 @@ public:
 	virtual void OpenFile(const StringImpl& launchPath, const StringImpl& targetPath, const StringImpl& args, const StringImpl& workingDir, const Array<uint8>& envBlock, bool hotSwapEnabled) override;
 	virtual bool Attach(int processId, BfDbgAttachFlags attachFlags) override;
 	virtual void Run() override;
+	virtual bool HasLoadedTargetBinary() override;
 	virtual void HotLoad(const Array<String>& objectFiles, int hotIdx) override;
 	virtual void InitiateHotResolve(DbgHotResolveFlags flags) override;
 	virtual intptr GetDbgAllocHeapSize() override;

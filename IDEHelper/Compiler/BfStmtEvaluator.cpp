@@ -399,10 +399,10 @@ bool BfModule::AddDeferredCallEntry(BfDeferredCallEntry* deferredCallEntry, BfSc
 
 		int dataIdx = 2;
 		int argIdx = 0;
-		if (!methodDef->mIsStatic)
+		if ((!methodDef->mIsStatic) && (!owningType->IsValuelessType()))
 		{
 			gepInstance = mBfIRBuilder->CreateInBoundsGEP(deferredAlloca, 0, 2);
-			if (owningType->IsStruct())
+			if (owningType->IsValueType())
 			{
 				if ((!methodDef->mIsMutating) && (owningType->IsSplattable()))
 				{
@@ -1172,7 +1172,7 @@ void BfModule::EmitDeferredCallProcessor(BfScopeData* scopeData, SLIList<BfDefer
 			if ((argIdx == 0) && (!methodDef->mIsStatic))
 			{
 				// 'this'
-				isStruct = methodOwner->IsStruct();
+				isStruct = methodOwner->IsValueType();
 			}
 			else
 			{
@@ -1750,7 +1750,7 @@ BfLocalVariable* BfModule::HandleVariableDeclaration(BfVariableDeclaration* varD
 				BfExprEvaluator valExprEvaluator(this);
 				valExprEvaluator.mAllowReadOnlyReference = isReadOnly;
 				initValue = CreateValueFromExpression(valExprEvaluator, varDecl->mInitializer, expectedType, (BfEvalExprFlags)(BfEvalExprFlags_NoCast | BfEvalExprFlags_AllowRefExpr | BfEvalExprFlags_VariableDeclaration));
-				
+
 				if ((initValue) && (resolvedType->IsUndefSizedArray()))
 				{
 					int stringId = GetStringPoolIdx(initValue.mValue, mBfIRBuilder);
@@ -2607,7 +2607,7 @@ void BfModule::HandleCaseEnumMatch_Tuple(BfTypedValue tupleVal, const BfSizedArr
 		auto tupleElement = Cast(deferredAssign.mExpr, deferredAssign.mTupleElement, argValue.mType);
 		if (!tupleElement)
 			continue;
-		tupleElement = LoadValue(tupleElement);
+		tupleElement = LoadOrAggregateValue(tupleElement);
 		if (!tupleElement.mType->IsValuelessType())
 			mBfIRBuilder->CreateStore(tupleElement.mValue, argValue.mValue);
 	}
@@ -6759,7 +6759,7 @@ void BfModule::Visit(BfForEachStatement* forEachStmt)
 		else
 		{
 			// Normal case
-			if ((nextResult) && (varType->IsComposite()) && (!isRefExpression))
+			if ((nextResult) && (varType->IsComposite()) && (!varType->IsValuelessType()) && (!isRefExpression))
 			{
 				needsValCopy = false;
 				varType = CreateRefType(varType);
@@ -6770,7 +6770,10 @@ void BfModule::Visit(BfForEachStatement* forEachStmt)
 			localDef->mNameNode = nameNode;
 			localDef->mName = variableName;
 			localDef->mResolvedType = varType;
-			varInst = CreateAlloca(varType);
+			if (!varType->IsValuelessType())
+				varInst = CreateAlloca(varType);
+			else
+				varInst = mBfIRBuilder->GetFakeVal();
 			localDef->mAddr = varInst;
 			localDef->mAssignedKind = BfLocalVarAssignKind_Unconditional;
 			localDef->mReadFromId = 0;

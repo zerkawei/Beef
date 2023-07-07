@@ -3195,7 +3195,7 @@ BfError* BfModule::Fail(const StringImpl& error, BfAstNode* refNode, bool isPers
 	if (mCurTypeInstance != NULL)
 		AddFailType(mCurTypeInstance);
 
-	BfLogSysM("BfModule::Fail module %p type %p %s\n", this, mCurTypeInstance, error.c_str());
+	BfLogSysM("BfModule::Fail module %p type %p %s @ %s\n", this, mCurTypeInstance, error.c_str(), (refNode != NULL) ? refNode->LocationToString().c_str() : "???");
 
  	String errorString = error;
 	BfWhileSpecializingFlags isWhileSpecializing = BfWhileSpecializingFlag_None;
@@ -3414,7 +3414,7 @@ void BfModule::CheckErrorAttributes(BfTypeInstance* typeInstance, BfMethodInstan
 
 	BfIRConstHolder* constHolder = typeInstance->mConstHolder;
 	auto customAttribute = customAttributes->Get(mCompiler->mObsoleteAttributeTypeDef);
-	if ((customAttribute != NULL) && (!customAttribute->mCtorArgs.IsEmpty()) && (targetSrc != NULL))
+	if ((customAttribute != NULL) && (targetSrc != NULL))
 	{
 		String err;
 		if (fieldInstance != NULL)
@@ -3426,23 +3426,29 @@ void BfModule::CheckErrorAttributes(BfTypeInstance* typeInstance, BfMethodInstan
 
 		bool isError = false;
 
-		auto constant = constHolder->GetConstant(customAttribute->mCtorArgs[0]);
-		if (constant->mTypeCode == BfTypeCode_Boolean)
+		if (customAttribute->mCtorArgs.size() >= 1)
 		{
-			isError = constant->mBool;
-		}
-		else if (customAttribute->mCtorArgs.size() >= 2)
-		{
-			String* str = GetStringPoolString(customAttribute->mCtorArgs[0], constHolder);
-			if (str != NULL)
+			auto constant = constHolder->GetConstant(customAttribute->mCtorArgs[0]);
+			if (constant->mTypeCode == BfTypeCode_Boolean)
 			{
-				err += ":\n    '";
-				err += *str;
-				err += "'";
+				isError = constant->mBool;
 			}
+			else if (constant->mTypeCode == BfTypeCode_StringId)
+			{
+				String* str = GetStringPoolString(customAttribute->mCtorArgs[0], constHolder);
+				if (str != NULL)
+				{
+					err += ":\n    '";
+					err += *str;
+					err += "'";
+				}
 
-			constant = constHolder->GetConstant(customAttribute->mCtorArgs[1]);
-			isError = constant->mBool;
+				if (customAttribute->mCtorArgs.size() >= 2)
+				{
+					constant = constHolder->GetConstant(customAttribute->mCtorArgs[1]);
+					isError = constant->mBool;
+				}
+			}
 		}
 
 		BfError* error = NULL;
@@ -3497,7 +3503,7 @@ void BfModule::CheckRangeError(BfType* type, BfAstNode* refNode)
 		Fail(StrFormat("Result out of range for type '%s'", TypeToString(type).c_str()), refNode);
 }
 
-void BfModule::FatalError(const StringImpl& error, const char* file, int line)
+void BfModule::FatalError(const StringImpl& error, const char* file, int line, int column)
 {
 	static bool sHadFatalError = false;
 	static bool sHadReentrancy = false;
@@ -3512,7 +3518,11 @@ void BfModule::FatalError(const StringImpl& error, const char* file, int line)
 	String fullError = error;
 
 	if (file != NULL)
+	{
 		fullError += StrFormat(" at %s:%d", file, line);
+		if (column != -1)
+			fullError += StrFormat(":%d", column);
+	}
 
 	fullError += StrFormat("\nModule: %s", mModuleName.c_str());
 
@@ -3528,6 +3538,43 @@ void BfModule::FatalError(const StringImpl& error, const char* file, int line)
 		fullError += "\nError had reentrancy";
 
 	BfpSystem_FatalError(fullError.c_str(), "FATAL MODULE ERROR");
+}
+
+void BfModule::FatalError(const StringImpl& error, BfAstNode* refNode)
+{
+	if (refNode != NULL)
+	{
+		auto parser = refNode->GetParserData();
+		if (parser != NULL)
+		{
+			int line = -1;
+			int lineChar = -1;
+			parser->GetLineCharAtIdx(refNode->mSrcStart, line, lineChar);
+			if (line != -1)
+				FatalError(error, parser->mFileName.c_str(), line, lineChar);
+		}
+	}
+	FatalError(error);
+}
+
+void BfModule::InternalError(const StringImpl& error, BfAstNode* refNode, const char* file, int line)
+{
+	String fullError = error;
+
+	if (file != NULL)
+		fullError += StrFormat(" at %s:%d", file, line);
+
+	fullError += StrFormat("\nModule: %s", mModuleName.c_str());
+
+	if (mCurTypeInstance != NULL)
+		fullError += StrFormat("\nType: %s", TypeToString(mCurTypeInstance).c_str());
+	if (mCurMethodInstance != NULL)
+		fullError += StrFormat("\nMethod: %s", MethodToString(mCurMethodInstance).c_str());
+
+	if ((mCurFilePosition.mFileInstance != NULL) && (mCurFilePosition.mFileInstance->mParser != NULL))
+		fullError += StrFormat("\nSource Location: %s:%d", mCurFilePosition.mFileInstance->mParser->mFileName.c_str(), mCurFilePosition.mCurLine + 1);
+
+	Fail(String("INTERNAL ERROR: ") + fullError, refNode);
 }
 
 void BfModule::NotImpl(BfAstNode* astNode)
@@ -5588,19 +5635,22 @@ void BfModule::EncodeAttributeData(BfTypeInstance* typeInstance, BfType* argType
 
 	if (argType->IsObject())
 	{
-		if (argType->IsInstanceOf(mCompiler->mStringTypeDef))
+		if ((argType->IsInstanceOf(mCompiler->mStringTypeDef)) || (argType == mContext->mBfObjectType))
 		{
-			int stringId = constant->mInt32;
-			int* orderedIdPtr;
-			if (usedStringIdMap.TryAdd(stringId, NULL, &orderedIdPtr))
+			if (constant->mTypeCode == BfTypeCode_StringId)
 			{
-				*orderedIdPtr = (int)usedStringIdMap.size() - 1;
-			}
+				int stringId = constant->mInt32;
+				int* orderedIdPtr;
+				if (usedStringIdMap.TryAdd(stringId, NULL, &orderedIdPtr))
+				{
+					*orderedIdPtr = (int)usedStringIdMap.size() - 1;
+				}
 
-			GetStringObjectValue(stringId, true, true);
-			PUSH_INT8(0xFF); // String
-			PUSH_INT32(*orderedIdPtr);
-			return;
+				GetStringObjectValue(stringId, true, true);
+				PUSH_INT8(0xFF); // String
+				PUSH_INT32(*orderedIdPtr);
+				return;
+			}
 		}
 	}
 
@@ -5623,6 +5673,19 @@ void BfModule::EncodeAttributeData(BfTypeInstance* typeInstance, BfType* argType
 				return;
 			}
 		}
+	}
+
+	if (constant->mConstType == BfConstType_BitCastNull)
+	{
+		PUSH_INT8(BfTypeCode_NullPtr);
+		return;
+	}
+
+	if (constant->mConstType == BfConstType_BitCast)
+	{
+		auto bitcast = (BfConstantBitCast*)constant;
+		EncodeAttributeData(typeInstance, argType, BfIRValue(BfIRValueFlags_Const, bitcast->mTarget), data, usedStringIdMap);
+		return;
 	}
 
 	PUSH_INT8(constant->mTypeCode);
@@ -5666,6 +5729,7 @@ void BfModule::EncodeAttributeData(BfTypeInstance* typeInstance, BfType* argType
 		for (int i = 0; i < argType->mSize; i++)
 			data.Add(0);
 	}
+
 // 	else if (constant->mConstType == BfConstType_Agg)
 // 	{
 // 		BF_ASSERT(argType->IsComposite());
@@ -5954,7 +6018,7 @@ BfIRValue BfModule::CreateTypeData(BfType* type, Dictionary<int, int>& usedStrin
 		if (typeInstance->mDefineState >= BfTypeDefineState_DefinedAndMethodsSlotted)
 		{
 			BfMethodInstance* methodInstance = typeInstance->mVirtualMethodTable[mCompiler->GetVTableMethodOffset() + 0].mImplementingMethod;
-			if (methodInstance->GetOwner() != mContext->mBfObjectType)
+			if ((methodInstance != NULL) && (methodInstance->GetOwner() != mContext->mBfObjectType))
 				typeFlags |= BfTypeFlags_HasDestructor;
 		}
 	}
@@ -5990,6 +6054,11 @@ BfIRValue BfModule::CreateTypeData(BfType* type, Dictionary<int, int>& usedStrin
 		typeFlags |= BfTypeFlags_Function;
 	if ((type->mDefineState != BfTypeDefineState_CETypeInit) && (type->WantsGCMarking()))
 		typeFlags |= BfTypeFlags_WantsMarking;
+
+	if ((typeInstance != NULL) && (typeInstance->mTypeDef->mIsStatic))
+		typeFlags |= BfTypeFlags_Static;
+	if ((typeInstance != NULL) && (typeInstance->mTypeDef->mIsAbstract))
+		typeFlags |= BfTypeFlags_Abstract;
 
 	int virtSlotIdx = -1;
 	if ((typeInstance != NULL) && (typeInstance->mSlotNum >= 0))
@@ -8512,6 +8581,8 @@ bool BfModule::CheckGenericConstraints(const BfGenericParamSource& genericParamS
 					}
 				}
 				else if (convCheckConstraint->IsInstanceOf(mCompiler->mDelegateTypeDef))
+					constraintMatched = true;
+				else if ((checkArgType->IsFunction()) && (convCheckConstraint->IsInstanceOf(mCompiler->mFunctionTypeDef)))
 					constraintMatched = true;
 			}
 			else if (CanCast(GetFakeTypedValue(checkArgType), convCheckConstraint))
@@ -11914,10 +11985,21 @@ void BfModule::GetCustomAttributes(BfCustomAttributes* customAttributes, BfAttri
 			}
 
 			BfCaptureInfo::Entry captureEntry;
-			captureEntry.mCaptureType = (tokenNode->mToken == BfToken_Ampersand) ? BfCaptureType_Reference : BfCaptureType_Copy;
+			captureEntry.mRefNode = tokenNode;
+			captureEntry.mCaptureType = BfCaptureType_Copy;
+			if (tokenNode->mToken == BfToken_Ampersand)
+				captureEntry.mCaptureType = BfCaptureType_Reference;
+			if (tokenNode->mToken == BfToken_Question)
+				captureEntry.mCaptureType = BfCaptureType_Auto;
 			if (!attributesDirective->mArguments.IsEmpty())
 			{
-				captureEntry.mNameNode = BfNodeDynCast<BfIdentifierNode>(attributesDirective->mArguments[0]);
+				if (auto identifierNode = BfNodeDynCast<BfIdentifierNode>(attributesDirective->mArguments[0]))
+					captureEntry.mNameNode = identifierNode;
+				else if (auto thisExpr = BfNodeDynCast<BfThisExpression>(attributesDirective->mArguments[0]))
+				{
+					captureEntry.mNameNode = thisExpr;
+				}
+
 				if ((captureEntry.mNameNode != NULL) && (autoComplete != NULL))
 					autoComplete->CheckIdentifier(captureEntry.mNameNode);
 			}
@@ -17856,7 +17938,8 @@ void BfModule::EmitCtorBody(bool& skipBody)
 	}
 
 	// Zero out memory for default ctor
-	if ((methodDeclaration == NULL) && (mCurTypeInstance->IsStruct()) && (methodInstance->mChainType != BfMethodChainType_ChainMember))
+	if ((methodDeclaration == NULL) && (mCurTypeInstance->IsStruct()) && (methodInstance->mChainType != BfMethodChainType_ChainMember) &&
+		(!mCurMethodState->mLocals.IsEmpty()))
 	{
 		if (mCurTypeInstance->IsTypedPrimitive())
 		{
@@ -23556,11 +23639,16 @@ void BfModule::DoMethodDeclaration(BfMethodDeclaration* methodDeclaration, bool 
 	auto typeDef = typeInstance->mTypeDef;
 	auto methodDef = mCurMethodInstance->mMethodDef;
 
-	BF_ASSERT(methodDef->mName != "__ASSERTNAME");
-	if (methodDef->mName == "__FATALERRORNAME")
-		BFMODULE_FATAL(this, "__FATALERRORNAME");
-	if (methodDef->mName == "__STACKOVERFLOW")
-		StackOverflow();
+	if (methodDef->mName.StartsWith('_'))
+	{
+		BF_ASSERT(methodDef->mName != "__ASSERTNAME");
+		if (methodDef->mName == "__FATALERRORNAME")
+			BFMODULE_FATAL(this, "__FATALERRORNAME");
+		if (methodDef->mName == "__STACKOVERFLOW")
+			StackOverflow();
+		if (methodDef->mName == "__INTERNALERROR")
+			InternalError("Bad method name", methodDef->GetRefNode());
+	}
 
 	if (typeInstance->IsClosure())
 	{
@@ -25053,7 +25141,10 @@ bool BfModule::SlotVirtualMethod(BfMethodInstance* methodInstance, BfAmbiguityCo
 					{
 						checkMethodIdx = lookupMethodInstance->mVirtualTableIdx;
 						if (checkMethodIdx >= baseVirtualMethodTable.mSize)
-							FatalError("SlotVirtualMethod OOB in baseVirtualMethodTable[checkMethodIdx]");
+						{
+							Fail("SlotVirtualMethod out of bounds", checkMethodDef->GetRefNode());
+							continue;
+						}
 						auto& baseMethodRef = baseVirtualMethodTable[checkMethodIdx];
 						if (baseMethodRef.mDeclaringMethod.mMethodNum == -1)
 						{

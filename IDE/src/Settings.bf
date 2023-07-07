@@ -250,6 +250,19 @@ namespace IDE
 				}
 				gApp.mDebugger.SetSymSrvOptions(mSymCachePath, symbolServerPath, .None);
 
+				String remapStr = scope .();
+				for (var entry in mAutoFindPaths)
+				{
+					if (entry.Contains('@'))
+					{
+						if (!remapStr.IsEmpty)
+							remapStr.Append("\n");
+						remapStr.Append(entry);
+					}
+				}
+				remapStr.Replace('@', '=');
+				gApp.mDebugger.SetSourcePathRemap(remapStr);
+
 				mProfileSampleRate = Math.Clamp(mProfileSampleRate, 10, 10000);
 			}
 
@@ -436,6 +449,7 @@ namespace IDE
 			public float mScale = 100;
 			public InsertNewTabsKind mInsertNewTabs = .LeftOfExistingTabs;
 			public List<String> mTheme = new .() ~ DeleteContainerAndItems!(_);
+			public bool mShowStartupPanel = true;
 
 			public void SetDefaults()
 			{
@@ -444,6 +458,7 @@ namespace IDE
 				mScale = 100;
 				mInsertNewTabs = .LeftOfExistingTabs;
 				ClearAndDeleteItems(mTheme);
+				mShowStartupPanel = true;
 			}
 
 			public void Apply()
@@ -463,8 +478,11 @@ namespace IDE
 						return;
 
 					StructuredData sd = scope .();
-					if (sd.Load(themeFilePath) case .Err)
+					if (sd.Load(themeFilePath) case .Err(var err))
+					{
+						gApp.OutputErrorLine($"Failed to load theme file '{themeFilePath}': {err}");
 						return;
+					}
 
 					using (sd.Open("Colors"))
 						mColors.Deserialize(sd);
@@ -583,6 +601,7 @@ namespace IDE
 						sd.Add(str);
 				}
 				sd.Add("InsertNewTabs", mInsertNewTabs);
+				sd.Add("ShowStartupPanel", mShowStartupPanel);
 			}
 
 			public void Deserialize(StructuredData sd)
@@ -596,6 +615,7 @@ namespace IDE
 					mTheme.Add(str);
 				}
 				sd.Get("InsertNewTabs", ref mInsertNewTabs);
+				sd.Get("ShowStartupPanel", ref mShowStartupPanel);
 			}
 		}
 
@@ -1078,6 +1098,8 @@ namespace IDE
 		}
 
 		public bool mLoadedSettings;
+		public String mSettingFileText ~ delete _;
+		public DateTime mSettingFileDateTime;
 
 		public UISettings mUISettings = new .() ~ delete _;
 		public EditorSettings mEditorSettings = new .() ~ delete _;
@@ -1091,10 +1113,22 @@ namespace IDE
 		public bool mEnableDevMode;
 		public TutorialsFinished mTutorialsFinished = .();
 
-
 		public this()
 		{
 			SetDefaults();
+		}
+
+		public this(Settings prevSettings)
+		{
+			Swap!(mRecentFiles, prevSettings.mRecentFiles);
+
+			for (var recent in mRecentFiles.mRecents)
+			{
+				recent.mList.ClearAndDeleteItems();
+				for (var item in recent.mMenuItems)
+					item.Dispose();
+				recent.mMenuItems.ClearAndDeleteItems();
+			}
 		}
 
 		public void SetDefaults()
@@ -1164,7 +1198,32 @@ namespace IDE
 
 			String dataStr = scope String();
 			sd.ToTOML(dataStr);
-			gApp.SafeWriteTextFile(path, dataStr);
+
+			if ((mSettingFileText == null) || (mSettingFileText != dataStr))
+			{
+				String.NewOrSet!(mSettingFileText, dataStr);
+				gApp.SafeWriteTextFile(path, dataStr);
+
+				if (File.GetLastWriteTime(path) case .Ok(let dt))
+					mSettingFileDateTime = dt;
+			}
+		}
+
+		public bool WantsReload()
+		{
+			if (mSettingFileDateTime == default)
+				return false;
+
+			String path = scope .();
+			GetSettingsPath(path);
+
+			if (File.GetLastWriteTime(path) case .Ok(let dt))
+			{
+				if (dt != mSettingFileDateTime)
+					return true;
+			}
+
+			return false;
 		}
 
 		public void Load()
@@ -1175,6 +1234,13 @@ namespace IDE
 			let sd = scope StructuredData();
 			if (sd.Load(path) case .Err)
 				return;
+
+			if (File.GetLastWriteTime(path) case .Ok(let dt))
+				mSettingFileDateTime = dt;
+
+			String.NewOrSet!(mSettingFileText, sd.[Friend]mSource);
+			mSettingFileText.Replace("\r\n", "\n");
+			mSettingFileText.Replace('\r', '\n');
 
 			mLoadedSettings = true;
 			using (sd.Open("UI"))

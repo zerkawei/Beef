@@ -320,6 +320,7 @@ namespace IDE
 		public Point mLastRelMousePos;
         public int32 mMouseStillTicks;
         public Widget mLastMouseWidget;*/
+		public bool mAppHasFocus;
         public int32 mCloseDelay;
         public FileChangedDialog mFileChangedDialog;
         public FindAndReplaceDialog mFindAndReplaceDialog;
@@ -1472,6 +1473,12 @@ namespace IDE
 			if (strOutDlg != null)
 				strOutDlg(useText);
 
+			for (var entry in mWorkspace.mProjectFileEntries)
+			{
+				if (entry.mPath == path)
+					entry.UpdateLastWriteTime();
+			}
+
 			return true;
 		}
 
@@ -1736,6 +1743,8 @@ namespace IDE
 						if (tabWidget.mContent is DisassemblyPanel)
 							continue;
 						if (tabWidget.mContent is WelcomePanel)
+							continue;
+						if (tabWidget.mContent is StartupPanel)
 							continue;
 					}
 
@@ -2470,7 +2479,10 @@ namespace IDE
 			ShowPanel(mOutputPanel, false);
 			mMainFrame.RehupSize();
 
-			ShowStartupFile();
+			if ((mSettings.mUISettings.mShowStartupPanel) && (!mWorkspace.IsInitialized))
+				ShowStartup();
+			else
+				ShowStartupFile();
 
 #if !CLI
 			if (mMainWindow != null)
@@ -2867,6 +2879,8 @@ namespace IDE
             }
 			else
 			{
+				mWorkspace.mProjectFileEntries.Add(new .(workspaceFileName));
+
 				if (mVerb == .New)
 				{
 					OutputErrorLine("Workspace '{0}' already exists, but '-new' argument was specified.", workspaceFileName);
@@ -2944,6 +2958,20 @@ namespace IDE
 
 			MarkDirty();
         }
+
+		protected void ReloadWorkspace()
+		{
+			SaveWorkspaceUserData(false);
+
+			String workspaceDir = scope .(mWorkspace.mDir);
+			String workspaceName = scope .(mWorkspace.mName);
+
+			CloseWorkspace();
+			mWorkspace.mDir = new String(workspaceDir);
+			mWorkspace.mName = new String(workspaceName);
+			LoadWorkspace(.Open);
+			FinishShowingNewWorkspace();
+		}
 
 		public void GetRelaunchCmd(bool safeMode, String outRelaunchCmd)
 		{
@@ -3912,11 +3940,14 @@ namespace IDE
 				if (!nextTabbedView.mWidgetWindow.mHasFocus)
 					nextTabbedView.mWidgetWindow.SetForeground();
 				var activeTab = nextTabbedView.GetActiveTab();
-				activeTab.Activate();
-
-				if (let sourceViewPanel = activeTab.mContent as SourceViewPanel)
+				if (activeTab != null)
 				{
-					sourceViewPanel.HilitePosition(.Always);
+					activeTab.Activate();
+
+					if (let sourceViewPanel = activeTab.mContent as SourceViewPanel)
+					{
+						sourceViewPanel.HilitePosition(.Always);
+					}
 				}
 			}
 		}
@@ -4412,7 +4443,7 @@ namespace IDE
             Debug.Assert(true);
 
             DisassemblyPanel disassemblyPanel = null;
-            WithTabs(scope [&] (tabButton) =>
+            WithTabs(scope [?] (tabButton) =>
                 {
                     if ((disassemblyPanel == null) && (tabButton.mContent is DisassemblyPanel))
                     {
@@ -4497,6 +4528,10 @@ namespace IDE
 						OutputLine("Compiling...");
 			        Compile(compileKind, null);
 			    }
+			}
+			else if ((mDebugger.mIsRunning) && (!mDebugger.HasLoadedTargetBinary()))
+			{
+				Compile(.WhileRunning, null);
 			}
 			else
 			{
@@ -5159,13 +5194,22 @@ namespace IDE
 		[IDECommand]
 		public void ReloadSettings()
 		{
-			delete mSettings;
-			mSettings = new .();
+			var prevSettings = mSettings;
+			defer delete prevSettings;
+			mSettings = new .(prevSettings);
 
 			DeleteAndNullify!(mKeyChordState);
 
 		    mSettings.Load();
 			mSettings.Apply();
+			UpdateRecentFileMenuItems();
+			UpdateRecentDisplayedFilesMenuItems();
+		}
+
+		public void CheckReloadSettings()
+		{
+			if (mSettings.WantsReload())
+				ReloadSettings();
 		}
 
 		[IDECommand]
@@ -6181,7 +6225,7 @@ namespace IDE
         public TabbedView.TabButton GetTab(Widget content)
         {
             TabbedView.TabButton tab = null;
-            WithTabs(scope [&] (checkTab) =>
+            WithTabs(scope [?] (checkTab) =>
                 {
                     if (checkTab.mContent == content)
                         tab = checkTab;
@@ -7085,7 +7129,7 @@ namespace IDE
 
             DarkTabbedView tabbedView = null;
             DarkTabbedView.DarkTabButton tabButton = null;
-            WithTabs(scope [&] (tab) =>
+            WithTabs(scope [?] (tab) =>
                 {
                     if (tab.mContent == documentPanel)
                     {
@@ -9270,7 +9314,7 @@ namespace IDE
             {
                 String text = scope String();
 				bool isValid = false;
-                if (LoadTextFile(fullPath, text, true, scope [&] () => { if (sourceHash != null) *sourceHash = SourceHash.Create(.MD5, text); } ) case .Ok)
+                if (LoadTextFile(fullPath, text, true, scope [?] () => { if (sourceHash != null) *sourceHash = SourceHash.Create(.MD5, text); } ) case .Ok)
 				{
                     mFileWatcher.FileIsValid(fullPath);
 					isValid = true;
@@ -10236,7 +10280,10 @@ namespace IDE
 										newString.Append(mInstallDir);
 										newString.Append("Beef", IDEApp.sRTVersionStr, "RT");
 										newString.Append((Workspace.PlatformType.GetPtrSizeByName(gApp.mPlatformName) == 4) ? "32" : "64");
-										newString.Append("_wasm.a\"");
+										newString.Append("_wasm");
+	  									if (project.mWasmOptions.mEnableThreads)
+	    										newString.Append("_pthread");
+	       									newString.Append(".a\"");
 									default:
 									}	
 
@@ -11584,7 +11631,7 @@ namespace IDE
             if (mExecutionQueue.Count > 0)
                 return false;
 
-            if ((mDebugger != null) && (mDebugger.mIsRunning) && (hotProject == null))
+            if ((mDebugger != null) && (mDebugger.mIsRunning) && (hotProject == null) && (compileKind != .WhileRunning))
 			{
 				Debug.Assert(!mDebugger.mIsRunningCompiled);
 				Debug.Assert((compileKind == .Normal) || (compileKind == .DebugComptime));
@@ -12211,7 +12258,7 @@ namespace IDE
 				if (mRunningTestScript)
 					flags |= .NoActivate;
 
-				if (mRequestedShowKind == .Maximized)
+				if (mRequestedShowKind == .Maximized || mRequestedShowKind == .ShowMaximized)
 					flags |= .ShowMaximized;
 
 				scope AutoBeefPerf("IDEApp.Init:CreateMainWindow");
@@ -12345,6 +12392,9 @@ namespace IDE
 
 			if ((mIsFirstRun) && (!mWorkspace.IsInitialized))
 				ShowWelcome();
+
+			if ((mSettings.mUISettings.mShowStartupPanel) && (!mIsFirstRun) && (!mWorkspace.IsInitialized))
+				ShowStartup();
         }
 #endif
 		void ShowWelcome()
@@ -12352,6 +12402,14 @@ namespace IDE
 			WelcomePanel welcomePanel = new .();
 			TabbedView tabbedView = GetDefaultDocumentTabbedView();
 			let tabButton = SetupTab(tabbedView, "Welcome", 0, welcomePanel, true);
+			tabButton.Activate();
+		}
+
+		void ShowStartup()
+		{
+			StartupPanel startupPanel = new .();
+			TabbedView tabbedView = GetDefaultDocumentTabbedView();
+			let tabButton = SetupTab(tabbedView, "Startup", 0, startupPanel, true);
 			tabButton.Activate();
 		}
 
@@ -13412,8 +13470,9 @@ namespace IDE
 							mBreakpointPanel.MarkStatsDirty();
                             mTargetHadFirstBreak = true;
 
-                            if (mDebugger.GetRunState() == DebugManager.RunState.Exception)
+                            switch (mDebugger.GetRunState())
                             {
+							case .Exception:
                                 String exceptionLine = scope String();
                                 mDebugger.GetCurrentException(exceptionLine);
                                 var exceptionData = String.StackSplit!(exceptionLine, '\n');
@@ -13427,11 +13486,26 @@ namespace IDE
                                 OutputLine(exString);
 								if (!IsCrashDump)
                                 	Fail(exString);
+							default:
                             }
                         }
                     }
                     break;
                 }
+				else if ((mDebugger != null) && (mDebugger.GetRunState() == .TargetUnloaded))
+				{
+					if (mWorkspace.mHadHotCompileSinceLastFullCompile)
+					{
+						// Had hot compiles - we need to recompile!
+						Compile(.WhileRunning);
+					}
+					else
+					{
+						mDebugger.Continue();
+					}
+					mWorkspace.StoppedRunning();
+					break;
+				}
                 else if (mDebuggerPerformingTask)
 				{
 					break;
@@ -13818,6 +13892,44 @@ namespace IDE
 			bool appHasFocus = false;
 			for (var window in mWindows)
 			    appHasFocus |= window.mHasFocus;
+
+			if ((appHasFocus) && (!mAppHasFocus))
+			{
+				CheckReloadSettings();
+
+				bool hadChange = false;
+				for (var entry in mWorkspace.mProjectFileEntries)
+				{
+					if (entry.HasFileChanged())
+					{
+						if (!hadChange)
+						{
+							String text = scope .();
+
+							if (entry.mProjectName != null)
+								text.AppendF($"The '{entry.mProjectName}' project file has been modified externally.");
+							else
+								text.Append("The workspace file has been modified externally.");
+
+							text.Append("\n\nDo you want to reload the workspace?");
+
+							var dialog = ThemeFactory.mDefault.CreateDialog("Reload Workspace?",
+								text);
+							dialog.AddYesNoButtons(new (dlg) =>
+								{
+									ReloadWorkspace();
+								},
+								new (dlg) =>
+								{
+
+								});
+							dialog.PopupWindow(GetActiveWindow());
+							hadChange = true;
+						}
+					}
+				}
+			}
+			mAppHasFocus = appHasFocus;
 
 			if (mRunningTestScript)
 				appHasFocus = true;

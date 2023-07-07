@@ -41,7 +41,8 @@ enum BfResolveTypeRefFlags
 	BfResolveTypeRefFlag_AllowImplicitConstExpr = 0x20000,
 	BfResolveTypeRefFlag_AllowUnboundGeneric = 0x40000,
 	BfResolveTypeRefFlag_ForceUnboundGeneric = 0x80000,
-	BfResolveTypeRefFlag_IgnoreProtection = 0x100000
+	BfResolveTypeRefFlag_IgnoreProtection = 0x100000,
+	BfResolveTypeRefFlag_SpecializedProject = 0x200000
 };
 
 enum BfTypeNameFlags : uint16
@@ -1721,8 +1722,15 @@ public:
 
 struct BfTypeLookupEntry
 {
+	enum Flags : uint8
+	{
+		Flags_None,
+		Flags_SpecializedProject
+	};
+
 	BfAtomComposite mName;
-	int mNumGenericParams;
+	int16 mNumGenericParams;
+	Flags mFlags;
 	uint32 mAtomUpdateIdx;
 	BfTypeDef* mUseTypeDef;
 
@@ -1730,6 +1738,7 @@ struct BfTypeLookupEntry
 	{
 		return (mName == rhs.mName) &&
 			(mNumGenericParams == rhs.mNumGenericParams) &&
+			(mFlags == rhs.mFlags) &&
 			(mUseTypeDef == rhs.mUseTypeDef);
 	}
 };
@@ -2303,6 +2312,7 @@ public:
 enum BfCaptureType
 {
 	BfCaptureType_None,
+	BfCaptureType_Auto,
 	BfCaptureType_Copy,
 	BfCaptureType_Reference,
 };
@@ -2722,6 +2732,45 @@ public:
 		BfTypeDef* ResolveToTypeDef(BfTypeReference* typeReference, BfType** outType = NULL);
 	};
 
+	class Iterator : public MultiHashSet<BfType*, BfResolvedTypeSetFuncs>::Iterator
+	{
+	public:
+		Iterator(MultiHashSet* set) : MultiHashSet::Iterator(set)
+		{
+
+		}
+
+		Iterator(const MultiHashSet::Iterator& itr) : MultiHashSet::Iterator(itr.mSet)
+		{
+			*((MultiHashSet::Iterator*)this) = itr;
+		}
+
+		// NULLs can occur in rare instances since we insert a preliminary "NULL" during insertion up until we actually construct the final type
+		void MovePastNulls()
+		{
+			while (this->mCurEntry != -1)
+			{
+				BF_ASSERT(this->mCurEntry < this->mSet->mAllocSize);
+				if (this->mSet->mEntries[this->mCurEntry].mValue != NULL)
+					break;
+				++(*((MultiHashSet::Iterator*)this));
+			}
+		}
+
+		Iterator& operator++()
+		{
+			++(*((MultiHashSet::Iterator*)this));
+			MovePastNulls();
+			return *this;
+		}
+
+		Iterator& operator=(const MultiHashSet::Iterator& itr)
+		{
+			*((MultiHashSet::Iterator*)this) = itr;
+			return *this;
+		}
+	};
+
 public:
 	static BfTypeDef* FindRootCommonOuterType(BfTypeDef* outerType, LookupContext* ctx, BfTypeInstance*& outCheckTypeInstance);
 	static BfVariant EvaluateToVariant(LookupContext* ctx, BfExpression* expr, BfType*& outType);
@@ -2800,9 +2849,25 @@ public:
 		return true;
 	}
 
-// 	Iterator begin();
-// 	Iterator end();
-// 	Iterator erase(Iterator& itr);
+	Iterator begin()
+	{
+		return ++Iterator(this);
+	}
+
+	Iterator end()
+	{
+		Iterator itr(this);
+		itr.mCurBucket = this->mHashSize;
+		return itr;
+	}
+
+	Iterator Erase(const Iterator& itr)
+	{
+		auto result = Iterator(MultiHashSet::Erase(itr));
+		result.MovePastNulls();
+		return result;
+	}
+
 	void RemoveEntry(EntryRef entry);
 };
 

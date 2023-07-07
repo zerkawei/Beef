@@ -21,6 +21,14 @@ namespace System.Collections
 			get;
 			set;
 		}
+
+		void Add(Variant item);
+		void Clear();
+ 		bool Contains(Variant item);
+		int IndexOf(Variant item);
+		void Insert(int index, Variant item);
+		bool Remove(Variant item);
+		void RemoveAt(int index);
 	}
 
 	public class List<T> : IEnumerable<T>, IList, ICollection<T>
@@ -217,6 +225,19 @@ namespace System.Collections
 			}
 		}
 
+		Variant IList.this[int index]
+		{
+			get
+			{
+				return [Unbound]Variant.Create(this[index]);
+			}
+
+			set
+			{
+				this[index] = value.Get<T>();
+			}
+		}
+
 		public ref T this[Index index]
 		{
 			[Checked]
@@ -297,19 +318,6 @@ namespace System.Collections
 			}
 		}
 
-		Variant IList.this[int index]
-		{
-			get
-			{
-				return [Unbound]Variant.Create(this[index]);
-			}
-
-			set
-			{
-				ThrowUnimplemented();
-			}
-		}
-
 		protected virtual T* Alloc(int size)
 		{
 			return Internal.AllocRawArrayUnmarked<T>(size);
@@ -368,6 +376,11 @@ namespace System.Collections
 #endif
 		}
 
+		void IList.Add(Variant item)
+		{
+			Add(item.Get<T>());
+		}
+
 		/// Adds an item to the front of the list.
 		public void AddFront(T item)
 		{
@@ -385,8 +398,8 @@ namespace System.Collections
 				Free(oldPtr);
 				return;
 			}
-			for (var val in ref addSpan)
-				mItems[mSize++] = val;
+			Internal.MemCpy(mItems + mSize, addSpan.Ptr, addSpan.Length * alignof(T), alignof(T));
+			mSize += (.)addSpan.Length;
 #if VERSION_LIST
 			mVersion++;
 #endif
@@ -466,6 +479,11 @@ namespace System.Collections
 			}
 		}
 
+		bool IList.Contains(Variant item)
+		{
+			return Contains(item.Get<T>());
+		}
+
 		public bool ContainsStrict(T item)
 		{
 			if (item == null)
@@ -518,6 +536,8 @@ namespace System.Collections
 
 		public void CopyTo(int index, T[] array, int arrayIndex, int count)
 		{
+			Debug.Assert((uint)index < (uint)mSize);
+			Debug.Assert((uint)index + (uint)count <= (uint)mSize);
 			// Delegate rest of error checking to Array.Copy.
 			for (int i = 0; i < count; i++)
 				array[i + arrayIndex] = mItems[i + index];
@@ -580,8 +600,14 @@ namespace System.Collections
 			return -1;
 		}
 
+		int IList.IndexOf(Variant item)
+		{
+			return IndexOf(item.Get<T>());
+		}
+
 		public int IndexOf(T item, int index)
 		{
+			Debug.Assert((uint)index < (uint)mSize);
 			for (int i = index; i < mSize; i++)
 				if (mItems[i] == item)
 					return i;
@@ -590,6 +616,8 @@ namespace System.Collections
 
 		public int IndexOf(T item, int index, int count)
 		{
+			Debug.Assert((uint)index < (uint)mSize);
+			Debug.Assert((uint)index + (uint)count <= (uint)mSize);
 			for (int i = index; i < index + count; i++)
 				if (mItems[i] == item)
 					return i;
@@ -606,6 +634,7 @@ namespace System.Collections
 
 		public int IndexOfStrict(T item, int index)
 		{
+			Debug.Assert((uint)index < (uint)mSize);
 			for (int i = index; i < mSize; i++)
 				if (mItems[i] === item)
 					return i;
@@ -614,6 +643,8 @@ namespace System.Collections
 
 		public int IndexOfStrict(T item, int index, int count)
 		{
+			Debug.Assert((uint)index < (uint)mSize);
+			Debug.Assert((uint)index + (uint)count <= (uint)mSize);
 			for (int i = index; i < index + count; i++)
 				if (mItems[i] === item)
 					return i;
@@ -659,6 +690,7 @@ namespace System.Collections
 
 		public void Insert(int index, T item)
 		{
+			Debug.Assert((uint)index <= (uint)mSize);
 			var item; // This creates a copy - required if item is a ref to an element
 			if (mSize == AllocSize) EnsureCapacity(mSize + 1, true);
 			if (index < mSize)
@@ -672,10 +704,15 @@ namespace System.Collections
 #endif
 		}
 
+		void IList.Insert(int index, Variant item)
+		{
+			Insert(index, item.Get<T>());
+		}
+
 		public void Insert(int index, Span<T> items)
 		{
 			//TODO: Handle case where Span is a reference to ourselves
-
+			Debug.Assert((uint)index <= (uint)mSize);
 			if (items.Length == 0)
 				return;
 			int addCount = items.Length;
@@ -706,6 +743,7 @@ namespace System.Collections
 
 		public void RemoveRange(int index, int count)
 		{
+			Debug.Assert((uint)index < (uint)mSize);
 			Debug.Assert((uint)index + (uint)count <= (uint)mSize);
 			if (index + count <= mSize - 1)
 			{
@@ -828,6 +866,11 @@ namespace System.Collections
 			}
 
 			return false;
+		}
+
+		bool IList.Remove(Variant item)
+		{
+			return Remove(item.Get<T>());
 		}
 
 		public bool RemoveStrict(T item)
@@ -1135,6 +1178,7 @@ namespace System.Collections
 
 		public int IndexOf(T item, int index, StringComparison comparison)
 		{
+			Debug.Assert((uint)index < (uint)mSize);
 			for (int i = index; i < mSize; i++)
 				if (mItems[i].Equals(item, comparison))
 					return i;
@@ -1143,6 +1187,8 @@ namespace System.Collections
 
 		public int IndexOf(T item, int index, int count, StringComparison comparison)
 		{
+			Debug.Assert((uint)index < (uint)mSize);
+			Debug.Assert((uint)index + (uint)count <= (uint)mSize);
 			for (int i = index; i < index + count; i++)
 				if (mItems[i].Equals(item, comparison))
 					return i;

@@ -34,7 +34,8 @@ enum BfResolveArgsFlags
 	BfResolveArgsFlag_DeferParamEval = 4,
 	BfResolveArgsFlag_AllowUnresolvedTypes = 8,
 	BfResolveArgsFlag_InsideStringInterpolationAlloc = 0x10,
-	BfResolveArgsFlag_FromIndexer = 0x20
+	BfResolveArgsFlag_FromIndexer = 0x20,
+	BfResolveArgsFlag_DeferStrings = 0x40
 };
 
 enum BfResolveArgFlags
@@ -537,6 +538,7 @@ public:
 	void CheckDotToken(BfTokenNode* tokenNode);
 	void DoMemberReference(BfMemberReferenceExpression* memberRefExpr, BfTypedValue* outCascadeValue);
 	void CreateObject(BfObjectCreateExpression* objCreateExpr, BfAstNode* allocNode, BfType* allocType);
+	void HandleIndexerExpression(BfIndexerExpression* indexerExpr, BfTypedValue target);
 
 	//////////////////////////////////////////////////////////////////////////
 

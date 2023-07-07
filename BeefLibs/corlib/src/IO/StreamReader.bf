@@ -50,6 +50,7 @@ namespace System.IO
 
 		private int32 mMaxCharsPerBuffer;
 		private Encoding mEncoding;
+		private bool mPendingNewlineCheck;
 
 		public Stream BaseStream
 		{
@@ -164,6 +165,18 @@ namespace System.IO
                 // This may block on pipes!
 				int numRead = ReadBuffer();
 				return numRead == 0;
+			}
+		}
+
+		public bool CanReadNow
+		{
+			get
+			{
+				if (mCharPos < mCharLen)
+					return true;
+				if (ReadBuffer(true) case .Ok(let count))
+					return count > 0;
+				return false;
 			}
 		}
 
@@ -393,7 +406,7 @@ namespace System.IO
 			}
 		}
 
-		protected virtual Result<int> ReadBuffer()
+		protected virtual Result<int> ReadBuffer(bool zeroWait = false)
 		{
 			mCharLen = 0;
 			mCharPos = 0;
@@ -405,7 +418,7 @@ namespace System.IO
 				if (mCheckPreamble)
 				{
                     //Contract.Assert(bytePos <= _preamble.Length, "possible bug in _compressPreamble.  Are two threads using this StreamReader at the same time?");
-					int len = Try!(mStream.TryRead(.(mByteBuffer, mBytePos, mByteBuffer.Count - mBytePos)));
+					int len = Try!(mStream.TryRead(.(mByteBuffer, mBytePos, mByteBuffer.Count - mBytePos), zeroWait ? 0 : -1));
                     /*switch (mStream.Read(mByteBuffer, mBytePos, mByteBuffer.Length - mBytePos))
 					{
 					case .Ok(var gotLen):
@@ -428,7 +441,7 @@ namespace System.IO
                             bytePos = byteLen = 0;*/
 						}
 
-						return mCharLen;
+						return mCharLen - mCharPos;
 					}
 
 					mByteLen += len;
@@ -437,7 +450,7 @@ namespace System.IO
 				{
                     //Contract.Assert(bytePos == 0, "bytePos can be non zero only when we are trying to _checkPreamble.  Are two threads using this StreamReader at the same time?");
 
-					mByteLen = Try!(mStream.TryRead(.(mByteBuffer, 0, mByteBuffer.Count)));
+					mByteLen = Try!(mStream.TryRead(.(mByteBuffer, 0, mByteBuffer.Count), zeroWait ? 0 : -1));
 					/*switch (mStream.Read(mByteBuffer, 0, mByteBuffer.Length))
 					{
 					case .Ok(var byteLen):
@@ -448,7 +461,7 @@ namespace System.IO
                     //Contract.Assert(byteLen >= 0, "Stream.Read returned a negative number!  This is a bug in your stream class.");
 
 					if (mByteLen == 0)  // We're at EOF
-						return mCharLen;
+						return mCharLen - mCharPos;
 				}
 
                 // _isBlocked == whether we read fewer bytes than we asked for.
@@ -488,12 +501,16 @@ namespace System.IO
 					}
 				}
 
-				
+				if (mPendingNewlineCheck)
+				{
+					if (mCharPos == 0 && mCharBuffer[mCharPos] == '\n') mCharPos++;
+					mPendingNewlineCheck = false;
+				}
 			}
-			while (mCharLen == 0);
+			while (mCharLen == mCharPos);
 
             //Console.WriteLine("ReadBuffer called.  chars: "+char8Len);
-			return mCharLen;
+			return mCharLen - mCharPos;
 		}
 
 		int GetChars(uint8[] byteBuffer, int byteOffset, int byteLength, char8[] char8Buffer, int char8Offset)
@@ -551,10 +568,18 @@ namespace System.IO
 						strBuffer.Append(mCharBuffer.CArray() + mCharPos, i - mCharPos);
 
 						mCharPos = i + 1;
-						if (ch == '\r' && (mCharPos < mCharLen || Try!(ReadBuffer()) > 0))
+						if (ch == '\r')
 						{
-							if (mCharBuffer[mCharPos] == '\n') mCharPos++;
+							if (mCharPos < mCharLen)
+							{
+								if (mCharBuffer[mCharPos] == '\n') mCharPos++;
+							}
+							else
+							{
+								mPendingNewlineCheck = true;
+							}
 						}
+
 						return .Ok;
 					}
 					i++;

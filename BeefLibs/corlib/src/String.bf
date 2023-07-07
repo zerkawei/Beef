@@ -427,7 +427,7 @@ namespace System
 				curPtr += intSize;
 			}
 
-			while (charsLeft > 1)
+			while (charsLeft >= 1)
 			{
 				hash = ((hash ^ (int)*curPtr) << 5) &- hash;
 				charsLeft--;
@@ -2125,18 +2125,18 @@ namespace System
 			return UTF8.Decode(ptr + idx, mLength - idx).c == c;
 		}
 
-		public void ReplaceLargerHelper(String find, String replace)
+		private void ReplaceLargerHelper(StringView find, StringView replace)
 		{
 			List<int> replaceEntries = scope List<int>(8192);
 			
-			int_strsize moveOffset = replace.mLength - find.mLength;
+			int_strsize moveOffset = (.) (replace.Length - find.Length);
 
-			for (int startIdx = 0; startIdx <= mLength - find.mLength; startIdx++)
+			for (int startIdx = 0; startIdx <= mLength - find.Length; startIdx++)
 			{
-				if (EqualsHelper(Ptr + startIdx, find.Ptr, find.mLength))
+				if (EqualsHelper(Ptr + startIdx, find.Ptr, find.Length))
 				{
 					replaceEntries.Add(startIdx);
-					startIdx += find.mLength - 1;
+					startIdx += find.Length - 1;
 				}
 			}
 
@@ -2154,14 +2154,14 @@ namespace System
 			for (int moveIdx = replaceEntries.Count - 1; moveIdx >= 0; moveIdx--)
 			{
 				int srcStartIdx = replaceEntries[moveIdx];
-				int srcEndIdx = srcStartIdx + find.mLength;
+				int srcEndIdx = srcStartIdx + find.Length;
 				int destStartIdx = srcStartIdx + moveIdx * moveOffset;
-				int destEndIdx = destStartIdx + replace.mLength;
+				int destEndIdx = destStartIdx + replace.Length;
 
 				for (int i = lastDestStartIdx - destEndIdx - 1; i >= 0; i--)
 					ptr[destEndIdx + i] = ptr[srcEndIdx + i];
 
-				for (int i < replace.mLength)
+				for (int i < replace.Length)
 					ptr[destStartIdx + i] = replacePtr[i];
 
 				lastDestStartIdx = destStartIdx;
@@ -2170,9 +2170,9 @@ namespace System
 			mLength = (int_strsize)destLength;
 		}
 
-		public void Replace(String find, String replace)
+		public void Replace(StringView find, StringView replace)
 		{
-			if (replace.mLength > find.mLength)
+			if (replace.Length > find.Length)
 			{
 				ReplaceLargerHelper(find, replace);
 				return;
@@ -2193,10 +2193,10 @@ namespace System
 				{
 					if (ptr[inIdx] == findC)
 					{
-						for (int i = 0; i < replace.mLength; i++)
+						for (int i = 0; i < replace.Length; i++)
 							ptr[outIdx++] = replacePtr[i];
 
-						inIdx += find.mLength;
+						inIdx += (.) find.Length;
 					}
 					else if (inIdx == outIdx)
 					{
@@ -2211,14 +2211,14 @@ namespace System
 			}
 			else
 			{
-				while (inIdx <= mLength - find.mLength)
+				while (inIdx <= mLength - find.Length)
 				{
-					if (EqualsHelper(ptr + inIdx, findPtr, find.mLength))
+					if (EqualsHelper(ptr + inIdx, findPtr, find.Length))
 					{
-						for (int i = 0; i < replace.mLength; i++)
+						for (int i = 0; i < replace.Length; i++)
 							ptr[outIdx++] = replacePtr[i];
 
-						inIdx += find.mLength;
+						inIdx += (.) find.Length;
 					}
 					else if (inIdx == outIdx)
 					{
@@ -2246,6 +2246,53 @@ namespace System
 			}
 
 			mLength = outIdx;
+		}
+
+		public void Replace(int start, int length, StringView replaceWith)
+		{
+			Debug.Assert(start >= 0 && start <= Length);
+			Debug.Assert(length >= 0 && length <= Length - start);
+
+			if (replaceWith.IsEmpty)
+				return;
+
+			if (replaceWith.Length == length)
+			{
+				Internal.MemCpy(&Ptr[start], replaceWith.Ptr, length);
+			}
+			else if (replaceWith.Length > length)
+			{
+				int additional = replaceWith.Length - length;
+				CalculatedReserve(Length + additional);
+				
+				if (start + length < Length)
+					Internal.MemMove(&Ptr[start + replaceWith.Length], &Ptr[start + length], Length - (start + length));
+
+				mLength += (.) additional;
+
+				Internal.MemCpy(&Ptr[start], replaceWith.Ptr, replaceWith.Length);
+			}
+			else
+			{
+				int difference = length - replaceWith.Length;
+
+				Internal.MemCpy(&Ptr[start], replaceWith.Ptr, replaceWith.Length);
+
+				if (start + length < Length)
+					Internal.MemMove(&Ptr[start + replaceWith.Length], &Ptr[start + length], Length - (start + length));
+
+				mLength -= (.) difference;
+			}
+		}
+		
+		public void Replace(IndexRange range, StringView replaceWith)
+		{
+			StringView view = this;
+
+			int start = view.[Friend]GetRangeStart(range);
+			int end = view.[Friend]GetRangeEnd(range);
+
+			Replace(start, end - start, replaceWith);
 		}
 
 		public void TrimEnd()
@@ -2980,7 +3027,8 @@ namespace System
 	{
 		StringSplitOptions mSplitOptions;
 		char8 mFirstSeparator;
-		char8[] mSeparators;
+		char8* mSeparatorPtr;
+		int32 mSeparatorCount;
 		char8* mPtr;
 		int_strsize mStrLen;
 		int32 mCurCount;
@@ -2993,10 +3041,17 @@ namespace System
 			mPtr = ptr;
 			mStrLen = (int_strsize)strLength;
 			if (separators?.Count > 0)
+			{
 				mFirstSeparator = separators[0];
+				mSeparatorPtr = &separators[0];
+				mSeparatorCount = (.)separators.Count;
+			}
 			else
-				mFirstSeparator = '\0';
-			mSeparators = separators;
+			{
+				mFirstSeparator = 0;
+				mSeparatorPtr = null;
+				mSeparatorCount = 0;
+			}
 			mCurCount = 0;
 			mMaxCount = (int32)count;
 			mPos = 0;
@@ -3009,7 +3064,8 @@ namespace System
 			mPtr = ptr;
 			mStrLen = (int_strsize)strLength;
 			mFirstSeparator = separator;
-			mSeparators = null;
+			mSeparatorPtr = null;
+			mSeparatorCount = 1;
 			mCurCount = 0;
 			mMaxCount = (int32)count;
 			mPos = 0;
@@ -3056,7 +3112,7 @@ namespace System
 				return mMatchPos < mStrLen && (!mSplitOptions.HasFlag(StringSplitOptions.RemoveEmptyEntries) || mStrLen != 0);
 			}
 		}
-
+		
 		public bool MoveNext() mut
 		{
 			if (mCurCount >= mMaxCount)
@@ -3090,18 +3146,39 @@ namespace System
 				else
 				{
 					char8 c = mPtr[mMatchPos];
-					if (c.IsWhiteSpace && mFirstSeparator == '\0' && (mSeparators == null || mSeparators.IsEmpty))
+					if (mSeparatorCount == 0)
 					{
-						foundMatch = true;
+						if (c.IsWhiteSpace)
+							foundMatch = true;
 					}
 					else if (c == mFirstSeparator)
 					{
 						foundMatch = true;
 					}
-					else if (mSeparators != null)
+					else if (mSeparatorCount < 2)
 					{
-						for (int i = 1; i < mSeparators.Count; i++)
-							if (c == mSeparators[i])
+						continue;
+					}
+					else if (c == mSeparatorPtr[1])
+					{
+						foundMatch = true;
+					}
+					else if (mSeparatorCount < 3)
+					{
+						continue;
+					}
+					else if (c == mSeparatorPtr[2])
+					{
+						foundMatch = true;
+					}
+					else if (mSeparatorCount < 3)
+					{
+						continue;
+					}
+					else
+					{
+						for (int i = 3; i < mSeparatorCount; i++)
+							if (c == mSeparatorPtr[i])
 								foundMatch = true;
 					}
 				}
@@ -3410,6 +3487,12 @@ namespace System
 			mLength = length;
 		}
 
+		public this(Span<uint8> data)
+		{
+			mPtr = (.)data.Ptr;
+			mLength = data.Length;
+		}
+
 		public ref char8 this[int index]
 		{
 			[Checked]
@@ -3461,43 +3544,51 @@ namespace System
 #endif
 			get
 			{
-				char8* start;
-				switch (range.[Friend]mStart)
+				int start = GetRangeStart(range);
+				int end = GetRangeEnd(range);
+
+				return .(mPtr + start, end - start);
+			}
+		}
+
+		private int GetRangeStart(IndexRange range)
+		{
+			switch (range.Start)
+			{
+			case .FromFront(let offset):
+				Debug.Assert((uint)offset <= (uint)mLength);
+				return offset;
+			case .FromEnd(let offset):
+				Debug.Assert((uint)offset <= (uint)mLength);
+				return mLength - offset;
+			}
+		}
+
+		private int GetRangeEnd(IndexRange range)
+		{
+			if (range.IsClosed)
+			{
+				switch (range.End)
+				{
+				case .FromFront(let offset):
+					Debug.Assert((uint)offset < (uint)mLength);
+					return offset + 1;
+				case .FromEnd(let offset):
+					Debug.Assert((uint)(offset - 1) <= (uint)mLength);
+					return mLength - offset + 1;
+				}
+			}
+			else
+			{
+				switch (range.End)
 				{
 				case .FromFront(let offset):
 					Debug.Assert((uint)offset <= (uint)mLength);
-					start = mPtr + offset;
+					return offset;
 				case .FromEnd(let offset):
 					Debug.Assert((uint)offset <= (uint)mLength);
-					start = mPtr + mLength - offset;
+					return mLength - offset;
 				}
-				char8* end;
-				if (range.[Friend]mIsClosed)
-				{
-					switch (range.[Friend]mEnd)
-					{
-					case .FromFront(let offset):
-						Debug.Assert((uint)offset < (uint)mLength);
-						end = mPtr + offset + 1;
-					case .FromEnd(let offset):
-						Debug.Assert((uint)(offset - 1) <= (uint)mLength);
-						end = mPtr + mLength - offset + 1;
-					}
-				}
-				else
-				{
-					switch (range.[Friend]mEnd)
-					{
-					case .FromFront(let offset):
-						Debug.Assert((uint)offset <= (uint)mLength);
-						end = mPtr + offset;
-					case .FromEnd(let offset):
-						Debug.Assert((uint)offset <= (uint)mLength);
-						end = mPtr + mLength - offset;
-					}
-				}
-
-				return .(start, end - start);
 			}
 		}
 

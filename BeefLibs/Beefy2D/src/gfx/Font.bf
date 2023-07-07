@@ -130,6 +130,7 @@ namespace Beefy.gfx
 		List<AltFont> mAlternates;
 		MarkRefData mMarkRefData ~ delete _;
 		float[] mLoKerningTable;
+		public StringView mEllipsis = "...";
 
         public this()
         {
@@ -704,6 +705,33 @@ namespace Beefy.gfx
 			return '\x02';
 		}
 
+		public static void StrRemoveColors(StringView theString, String str)
+		{
+			int len = theString.Length;
+			if (len == 0)
+			{
+				return;
+			}
+
+			for (var c in theString.DecodedChars)
+			{
+				int idx = @c.NextIndex;
+				if (c == (char32)'\x01')
+				{
+					@c.NextIndex = idx + 4;
+					continue;
+				}
+				else if (c == (char32)'\x02')
+				{
+					continue;
+				}
+		        str.Append(c);
+
+				if (idx >= len)
+					break;
+		    }
+		}
+
         public void Draw(Graphics g, StringView theString, FontMetrics* fontMetrics = null)
         {
 			if (mFTFont == null)
@@ -868,14 +896,14 @@ namespace Beefy.gfx
 
                     if (stringEndMode == FontOverflowMode.Ellipsis)
                     {
-                        float ellipsisLen = GetWidth("...");
+                        float ellipsisLen = GetWidth(mEllipsis);
                         if (width < ellipsisLen)
                             return 0; // Don't draw at all if we don't even have enough space for the ellipsis
                         
 						int strLen = GetCharCountToLength(workingStr, width - ellipsisLen);
 						tempStr = scope:: String(Math.Min(strLen, 128));
 						tempStr.Append(theString, 0, strLen);
-						tempStr.Append("...");
+						tempStr.Append(mEllipsis);
 						workingStr = tempStr;
                         aWidth = GetWidth(workingStr);
                         break;

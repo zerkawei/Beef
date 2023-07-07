@@ -220,7 +220,10 @@ enum BfTypeFlags
 	BfTypeFlags_Delegate        = 0x20000,
 	BfTypeFlags_Function		= 0x40000,
 	BfTypeFlags_HasDestructor   = 0x80000,
-	BfTypeFlags_GenericParam	= 0x100000
+	BfTypeFlags_GenericParam	= 0x100000,
+
+	BfTypeFlags_Static			= 0x200000,
+	BfTypeFlags_Abstract		= 0x400000,
 };
 
 enum BfMethodFlags
@@ -998,6 +1001,7 @@ public:
 	int mBestPri;
 	BfTypeDef* mBestTypeDef;
 	BfTypeDef* mAmbiguousTypeDef;
+	Array<BfProject*>* mCheckProjects;
 
 public:
 	BfTypeDefLookupContext()
@@ -1005,6 +1009,7 @@ public:
 		mBestPri = (int)0x80000000;
 		mBestTypeDef = NULL;
 		mAmbiguousTypeDef = NULL;
+		mCheckProjects = NULL;
 	}
 
 	bool HasValidMatch()

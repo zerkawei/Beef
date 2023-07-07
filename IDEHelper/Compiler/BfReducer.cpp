@@ -2093,7 +2093,12 @@ BfExpression* BfReducer::CreateExpression(BfAstNode* node, CreateExprFlags creat
 			}
 			else if (token == BfToken_LBracket)
 			{
-				exprLeft = CreateAttributedExpression(tokenNode, false);
+				if ((createExprFlags & CreateExprFlags_AllowAnonymousIndexer) != 0)
+				{
+					exprLeft = CreateIndexerExpression(NULL, tokenNode);
+				}
+				else
+					exprLeft = CreateAttributedExpression(tokenNode, false);
 			}
 			else if (token == BfToken_FatArrow)
 			{
@@ -4810,6 +4815,8 @@ BfTypeReference* BfReducer::DoCreateTypeRef(BfAstNode* firstNode, CreateTypeRefF
 			{
 				MoveNode(memberReferenceExpression->mTarget, qualifiedTypeRef);
 				auto leftTypeRef = DoCreateTypeRef(memberReferenceExpression->mTarget);
+				if (leftTypeRef == NULL)
+					return NULL;
 				MEMBER_SET(qualifiedTypeRef, mLeft, leftTypeRef);
 			}
 			MEMBER_SET(qualifiedTypeRef, mDot, memberReferenceExpression->mDotToken);
@@ -4819,6 +4826,8 @@ BfTypeReference* BfReducer::DoCreateTypeRef(BfAstNode* firstNode, CreateTypeRefF
 			{
 				MoveNode(memberReferenceExpression->mMemberName, memberReferenceExpression);
 				auto rightTypeRef = DoCreateTypeRef(memberReferenceExpression->mMemberName);
+				if (rightTypeRef == NULL)
+					return NULL;
 				MEMBER_SET(qualifiedTypeRef, mRight, rightTypeRef);
 			}
 			firstNode = qualifiedTypeRef;
@@ -5620,16 +5629,30 @@ BfAttributeDirective* BfReducer::CreateAttributeDirective(BfTokenNode* startToke
 				MEMBER_SET(attributeTargetSpecifier, mColonToken, tokenNode);
 			attributeDirective->SetSrcEnd(attributeDirective->mAttributeTargetSpecifier->GetSrcEnd());
 		}
-		else if ((tokenNode->mToken == BfToken_Ampersand) || (tokenNode->mToken == BfToken_AssignEquals))
+		else if ((tokenNode->mToken == BfToken_Ampersand) || (tokenNode->mToken == BfToken_AssignEquals) || (tokenNode->mToken == BfToken_Question))
 		{
 			MEMBER_SET(attributeDirective, mAttributeTargetSpecifier, tokenNode);
 			mVisitorPos.MoveNext();
 			isHandled = true;
 			nextNode = mVisitorPos.GetNext();
+			BfExpression* nameNode = NULL;
+
 			if (auto identiferNode = BfNodeDynCast<BfIdentifierNode>(nextNode))
+				nameNode = identiferNode;
+			else if (auto nextToken = BfNodeDynCast<BfTokenNode>(nextNode))
 			{
-				attributeDirective->SetSrcEnd(identiferNode->GetSrcEnd());
-				arguments.push_back(identiferNode);
+				if (nextToken->mToken == BfToken_This)
+				{
+					auto thisExpr = mAlloc->Alloc<BfThisExpression>();
+					ReplaceNode(nextToken, thisExpr);
+					nameNode = thisExpr;
+				}
+			}
+
+			if (nameNode != NULL)
+			{
+				attributeDirective->SetSrcEnd(nameNode->GetSrcEnd());
+				arguments.push_back(nameNode);
 				mVisitorPos.MoveNext();
 				nextNode = mVisitorPos.GetNext();
 			}
@@ -7552,7 +7575,7 @@ BfInitializerExpression* BfReducer::TryCreateInitializerExpression(BfAstNode* ta
 		BfAstNode* node = mVisitorPos.GetCurrent();
 		initializerExpr->mSrcEnd = node->mSrcEnd;
 
-		auto expr = CreateExpression(node);
+		auto expr = CreateExpression(node, BfReducer::CreateExprFlags_AllowAnonymousIndexer);
 		isDone = !mVisitorPos.MoveNext();
 		if (expr != NULL)
 			values.Add(expr);
@@ -7564,14 +7587,20 @@ BfInitializerExpression* BfReducer::TryCreateInitializerExpression(BfAstNode* ta
 			bool foundComma = false;
 
 			node = mVisitorPos.GetCurrent();
-			if (auto tokenNode = BfNodeDynCast<BfTokenNode>(node))
+			if (node != NULL)
 			{
-				if (tokenNode->mToken == BfToken_Comma)
+				if (auto tokenNode = BfNodeDynCast<BfTokenNode>(node))
 				{
-					foundComma = true;
-					commas.Add(tokenNode);
-					isDone = !mVisitorPos.MoveNext();
+					if (tokenNode->mToken == BfToken_Comma)
+					{
+						foundComma = true;
+						commas.Add(tokenNode);
+						isDone = !mVisitorPos.MoveNext();
+					}
 				}
+
+				if (!foundComma)
+					Fail("Expected ','", node);
 			}
 		}
 	}
@@ -8143,15 +8172,24 @@ BfObjectCreateExpression* BfReducer::CreateObjectCreateExpression(BfAstNode* all
 	return objectCreateExpr;
 }
 
-BfExpression* BfReducer::CreateIndexerExpression(BfExpression* target)
+BfExpression* BfReducer::CreateIndexerExpression(BfExpression* target, BfTokenNode* openBracketNode)
 {
-	auto tokenNode = ExpectTokenAfter(target, BfToken_LBracket, BfToken_QuestionLBracket);
+	auto tokenNode = openBracketNode;
+	if (openBracketNode == NULL)
+		tokenNode = ExpectTokenAfter(target, BfToken_LBracket, BfToken_QuestionLBracket);
 
 	auto indexerExpr = mAlloc->Alloc<BfIndexerExpression>();
 	BfDeferredAstSizedArray<BfExpression*> arguments(indexerExpr->mArguments, mAlloc);
 	BfDeferredAstSizedArray<BfTokenNode*> commas(indexerExpr->mCommas, mAlloc);
-	indexerExpr->mTarget = target;
-	ReplaceNode(target, indexerExpr);
+	if (target != NULL)
+	{
+		indexerExpr->mTarget = target;
+		ReplaceNode(target, indexerExpr);
+	}
+	else
+	{
+		ReplaceNode(openBracketNode, indexerExpr);
+	}
 
 	indexerExpr->mOpenBracket = tokenNode;
 	MoveNode(indexerExpr->mOpenBracket, indexerExpr);

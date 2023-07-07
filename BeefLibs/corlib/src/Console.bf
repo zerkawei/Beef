@@ -83,6 +83,15 @@ namespace System
 
 		//SetConsoleOutputCP set to CP_UTF8
 
+		const uint32 ENABLE_LINE_INPUT = 0x0002;
+		const uint32 ENABLE_ECHO_INPUT = 0x0004;
+
+		[CLink, CallingConvention(.Stdcall)]
+		static extern Windows.IntBool GetConsoleMode(Windows.Handle hConsoleHandle, out uint32 mode);
+
+		[CLink, CallingConvention(.Stdcall)]
+		static extern Windows.IntBool SetConsoleMode(Windows.Handle hConsoleHandle, uint32 mode);
+
 		[CLink, CallingConvention(.Stdcall)]
 		static extern Windows.IntBool SetConsoleTextAttribute(Windows.Handle hConsoleOutput, uint16 wAttributes);
 
@@ -117,6 +126,45 @@ namespace System
 				sOriginalBackgroundColor.ConsoleTextAttribute = (uint8)(consoleInfo.mAttributes >> 4);
 			}
 			SetConsoleOutputCP(/*CP_UTF8*/65001);
+		}
+
+		public static int32 CursorTop
+		{
+			public get
+			{
+				let handle = GetStdHandle(STD_OUTPUT_HANDLE);
+				CONSOLE_SCREEN_BUFFER_INFO consoleInfo = .();
+				GetConsoleScreenBufferInfo(handle,out consoleInfo);
+				return consoleInfo.mCursorPosition[1]; //1 = y position
+			}
+			public set
+			{
+				//This has to be done afaik to ensure x stays the same
+				let handle = GetStdHandle(STD_OUTPUT_HANDLE);
+				CONSOLE_SCREEN_BUFFER_INFO consoleInfo = .();
+				GetConsoleScreenBufferInfo(handle,out consoleInfo);
+
+				SetConsoleCursorPosition(handle, COORD((.)consoleInfo.mCursorPosition[0], (.)value));
+			}
+		}
+		public static int32 CursorLeft
+		{
+			public get
+			{
+				let handle = GetStdHandle(STD_OUTPUT_HANDLE);
+				CONSOLE_SCREEN_BUFFER_INFO consoleInfo = .();
+				GetConsoleScreenBufferInfo(handle,out consoleInfo);
+				return consoleInfo.mCursorPosition[0]; //1 = y position
+			}
+			public set
+			{
+				//This has to be done afaik to ensure x stays the same
+				let handle = GetStdHandle(STD_OUTPUT_HANDLE);
+				CONSOLE_SCREEN_BUFFER_INFO consoleInfo = .();
+				GetConsoleScreenBufferInfo(handle,out consoleInfo);
+
+				SetConsoleCursorPosition(handle, COORD((.)value,(.)consoleInfo.mCursorPosition[1]));
+			}
 		}
 #endif
 
@@ -157,7 +205,16 @@ namespace System
 			{
 				FileStream fileStream = new .();
 				Stream stream = fileStream;
-				if (fileStream.OpenStd(stdKind) case .Err)
+				if (fileStream.OpenStd(stdKind) case .Ok)
+				{
+#if BF_PLATFORM_WINDOWS
+					
+					GetConsoleMode((.)fileStream.Handle, var consoleMode);
+					consoleMode &= ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT);
+					SetConsoleMode((.)fileStream.Handle, consoleMode);
+#endif
+				}
+				else
 				{
 					DeleteAndNullify!(fileStream);
 					stream = new NullStream();
@@ -203,6 +260,8 @@ namespace System
 				return OpenStreamReader(.In, ref mIn);
 			}
 		}
+
+		public static bool KeyAvailable => In.CanReadNow;
 		
 		public static Result<char8> Read() => In.Read();
 

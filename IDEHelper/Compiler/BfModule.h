@@ -627,12 +627,14 @@ public:
 	{
 		BfCaptureType mCaptureType;
 		bool mUsed;
-		BfIdentifierNode* mNameNode;
+		BfAstNode* mRefNode;
+		BfAstNode* mNameNode;
 
 		Entry()
 		{
 			mCaptureType = BfCaptureType_Copy;
 			mUsed = false;
+			mRefNode = NULL;
 			mNameNode = NULL;
 		}
 	};
@@ -1602,7 +1604,9 @@ public:
 	bool mHadHotObjectWrites;
 
 public:
-	void FatalError(const StringImpl& error, const char* file = NULL, int line = -1);
+	void FatalError(const StringImpl& error, const char* file = NULL, int line = -1, int column = -1);
+	void FatalError(const StringImpl& error, BfAstNode* refNode);
+	void InternalError(const StringImpl& error, BfAstNode* refNode = NULL, const char* file = NULL, int line = -1);
 	void NotImpl(BfAstNode* astNode);
 	void AddMethodReference(const BfMethodRef& methodRef, BfGetMethodInstanceFlags flags = BfGetMethodInstanceFlag_None);
 	bool CheckProtection(BfProtection protection, BfTypeDef* checkType, bool allowProtected, bool allowPrivate);
@@ -1949,7 +1953,7 @@ public:
 	BfType* ResolveTypeResult(BfTypeReference* typeRef, BfType* resolvedTypeRef, BfPopulateType populateType, BfResolveTypeRefFlags resolveFlags);
 	void ShowAmbiguousTypeError(BfAstNode* refNode, BfTypeDef* typeDef, BfTypeDef* otherTypeDef);
 	void ShowGenericArgCountError(BfAstNode* typeRef, int wantedGenericParams);
-	BfTypeDef* GetActiveTypeDef(BfTypeInstance* typeInstanceOverride = NULL, bool useMixinDecl = false); // useMixinDecl is useful for type lookup, but we don't want the decl project to limit what methods the user can call
+	BfTypeDef* GetActiveTypeDef(BfTypeInstance* typeInstanceOverride = NULL, bool useMixinDecl = false, bool useForeignImpl = false); // useMixinDecl is useful for type lookup, but we don't want the decl project to limit what methods the user can call
 	BfTypeDef* FindTypeDefRaw(const BfAtomComposite& findName, int numGenericArgs, BfTypeInstance* typeInstance, BfTypeDef* useTypeDef, BfTypeLookupError* error, BfTypeLookupResultCtx* lookupResultCtx = NULL, BfResolveTypeRefFlags resolveFlags = (BfResolveTypeRefFlags)0);
 	BfTypeDef* FindTypeDef(const BfAtomComposite& findName, int numGenericArgs = 0, BfTypeInstance* typeInstanceOverride = NULL, BfTypeLookupError* error = NULL, BfResolveTypeRefFlags resolveFlags = (BfResolveTypeRefFlags)0);
 	BfTypeDef* FindTypeDef(const StringImpl& typeName, int numGenericArgs = 0, BfTypeInstance* typeInstanceOverride = NULL, BfTypeLookupError* error = NULL, BfResolveTypeRefFlags resolveFlags = (BfResolveTypeRefFlags)0);

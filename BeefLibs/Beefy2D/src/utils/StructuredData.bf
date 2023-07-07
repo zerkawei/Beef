@@ -21,11 +21,12 @@ namespace Beefy.utils
 			case UnexpectedObjectEnd;
 			case ExpectedArrayNameEnd;
 
-			/*public override void ToString(String str)
+			public override void ToString(String str)
 			{
 				switch (this)
 				{
-				case FormatError: str.Append("Format error");
+				case FileError: str.Append("File error");
+				case FormatError(let line): str.AppendF($"Format error on line {line}");
 				case ParseError: str.Append("Parse error");
 				case ColonNotExpected: str.Append("Colon not expected");
 				case KeyInArray: str.Append("Cannot add key/val to array");
@@ -33,8 +34,9 @@ namespace Beefy.utils
 				case ValueExpected: str.Append("Value expected");
 				case PrecedingCommaExpected: str.Append("Preceding comma expected");
 				case UnexpectedObjectEnd: str.Append("Unexpected object end");
+				case ExpectedArrayNameEnd: str.Append("Expected array name end");
 				}
-			}*/
+			}
 		}
 
         public struct Enumerator : IEnumerator<StringView>
@@ -506,11 +508,11 @@ namespace Beefy.utils
 			case typeof(Int64): return (.)(int64)val;
 			case typeof(Int): return (.)(int)val;
 			case typeof(String):
-				if (int32.Parse((String)val) case .Ok(var fVal))
+				if (int32.Parse((String)val, .AllowHexSpecifier) case .Ok(var fVal))
 					return (.)fVal;
 				return defaultVal;
 			case typeof(StringView):
-				if (int32.Parse((StringView)val) case .Ok(var fVal))
+				if (int32.Parse((StringView)val, .AllowHexSpecifier) case .Ok(var fVal))
 					return (.)fVal;
 				return defaultVal;
 			default: return defaultVal;
@@ -529,11 +531,11 @@ namespace Beefy.utils
 			case typeof(Int64): return (.)(int64)val;
 			case typeof(Int): return (.)(int)val;
 			case typeof(String):
-				if (int64.Parse((String)val) case .Ok(var parsedVal))
+				if (int64.Parse((String)val, .AllowHexSpecifier) case .Ok(var parsedVal))
 					return (.)parsedVal;
 				return defaultVal;
 			case typeof(StringView):
-				if (int64.Parse((StringView)val) case .Ok(var parsedVal))
+				if (int64.Parse((StringView)val, .AllowHexSpecifier) case .Ok(var parsedVal))
 					return (.)parsedVal;
 				return defaultVal;
 			default: return defaultVal;
@@ -552,11 +554,11 @@ namespace Beefy.utils
 			case typeof(Int64): return (.)(int64)val;
 			case typeof(Int): return (.)(int)val;
 			case typeof(String):
-				if (int64.Parse((String)val) case .Ok(var parsedVal))
+				if (int64.Parse((String)val, .AllowHexSpecifier) case .Ok(var parsedVal))
 					return (.)parsedVal;
 				return defaultVal;
 			case typeof(StringView):
-				if (int64.Parse((StringView)val) case .Ok(var parsedVal))
+				if (int64.Parse((StringView)val, .AllowHexSpecifier) case .Ok(var parsedVal))
 					return (.)parsedVal;
 				return defaultVal;
 			default: return defaultVal;
@@ -1841,7 +1843,7 @@ namespace Beefy.utils
 								}
 								else
 								{
-									var parseVal = int64.Parse(strView);
+									var parseVal = int64.Parse(strView, .AllowHexSpecifier);
 									if (parseVal case .Ok(var intVal))
 										aValue = new:mBumpAllocator box intVal;
 									else
@@ -2242,7 +2244,7 @@ namespace Beefy.utils
 						}
 					}
 
-					switch (Int64.Parse(value))
+					switch (Int64.Parse(value, .AllowHexSpecifier))
 					{
 					case .Err: return null;
 					case .Ok(let num): return new:mBumpAllocator box num;
