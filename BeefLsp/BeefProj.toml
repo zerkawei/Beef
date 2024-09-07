@@ -17,7 +17,7 @@ DebugCommandArguments = "--port=5556"
 [Configs.Debug.Linux64]
 TargetDirectory = "$(WorkspaceDir)/../IDE/dist"
 TargetName = "$(ProjectName)_d"
-OtherLinkFlags = "$(LinkFlags) libIDEHelper_d.so libBeefySysLib_d.so $(Var IDEHelper_libs_d)"
+OtherLinkFlags = "$(LinkFlags) libIDEHelper_d.a libBeefySysLib_d.a libhunspell.so $(Var IDEHelper_libs_d)"
 CLibType = "Dynamic"
 BeefLibType = "DynamicDebug"
 PreBuildCmds = ["ReadFile(\"$(WorkspaceDir)/../IDE/dist/IDEHelper_libs_d.txt\", \"IDEHelper_libs_d\")"]
@@ -31,7 +31,7 @@ DebugCommandArguments = "--port=5556"
 
 [Configs.Release.Linux64]
 TargetDirectory = "$(WorkspaceDir)/../IDE/dist"
-OtherLinkFlags = "$(LinkFlags) libIDEHelper.so libBeefySysLib.so $(Var IDEHelper_libs)"
+OtherLinkFlags = "$(LinkFlags) libIDEHelper.a libBeefySysLib.a libhunspell.so $(Var IDEHelper_libs)"
 CLibType = "Dynamic"
 PreBuildCmds = ["ReadFile(\"$(WorkspaceDir)/../IDE/dist/IDEHelper_libs.txt\", \"IDEHelper_libs\")"]
 DebugCommandArguments = "--port=5556"
