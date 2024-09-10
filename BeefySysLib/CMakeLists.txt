@@ -322,7 +322,7 @@ else()
 endif()
 
 if (DEFINED BF_ENABLE_SDL)
-    file(GLOB SRC_FILES_OS
+    file(GLOB SRC_FILES_SDL
         platform/sdl/SdlBFApp.cpp
         platform/sdl/GLRenderDevice.cpp
     )
@@ -332,6 +332,7 @@ endif()
 add_library(${PROJECT_NAME} STATIC
    ${SRC_FILES}
    ${SRC_FILES_OS}
+   ${SRC_FILES_SDL}
 )
 
 # Link with other dependencies.
