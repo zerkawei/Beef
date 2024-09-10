@@ -34,8 +34,13 @@ static HMODULE GetSDLModule(const StringImpl& installDir)
 {
 	if (gSDLModule == NULL)
 	{
+#if defined(BF_PLATFORM_WINDOWS)
 		String loadPath = installDir + "SDL2.dll";
 		gSDLModule = ::LoadLibraryA(loadPath.c_str());
+#elif defined(BF_PLATFORM_LINUX)
+		String loadPath = installDir + "SDL2.so";
+		gSDLModule = dlopen(loadPath.c_str(), RTLD_LAZY);
+#endif
 		if (gSDLModule == NULL)
 		{
 #ifdef BF_PLATFORM_WINDOWS
@@ -51,7 +56,11 @@ static HMODULE GetSDLModule(const StringImpl& installDir)
 template <typename T>
 static void BFGetSDLProc(T& proc, const char* name, const StringImpl& installDir)
 {
+#if defined(BF_PLATFORM_WINDOWS)
 	proc = (T)::GetProcAddress(GetSDLModule(installDir), name);
+#elif defined(BF_PLATFORM_LINUX)
+	proc =  (T)dlsym(GetSDLModule(installDir), name);
+#endif
 }
 
 #define BF_GET_SDLPROC(name) BFGetSDLProc(bf_##name, #name, mInstallDir)
