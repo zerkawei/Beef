@@ -28,6 +28,14 @@ DebugCommandArguments = "-proddir=\"$(WorkspaceDir)\\..\\BeefBuild\""
 DebugWorkingDirectory = "$(WorkspaceDir)\\.."
 EnvironmentVars = ["_NO_DEBUG_HEAP=1"]
 
+[Configs.Debug.Linux64]
+TargetDirectory = "$(WorkspaceDir)/dist"
+TargetName = "BeefIDE_d"
+OtherLinkFlags = "-lLLVM-18 -lGL libBeefRT_d.a libIDEHelper_d.a libBeefySysLib_d.a libhunspell.so"
+DebugCommandArguments = "-proddir=\"$(WorkspaceDir)\\..\\BeefBuild\""
+DebugWorkingDirectory = "$(WorkspaceDir)\\.."
+EnvironmentVars = ["_NO_DEBUG_HEAP=1"]
+
 [Configs.Release.Win32]
 TargetName = ""
 OtherLinkFlags = ""
@@ -36,6 +44,14 @@ OtherLinkFlags = ""
 TargetDirectory = "$(WorkspaceDir)/dist"
 TargetName = "BeefIDE"
 OtherLinkFlags = "Comdlg32.lib kernel32.lib user32.lib advapi32.lib shell32.lib Beef042RT64.lib IDEHelper64.lib BeefySysLib64.lib"
+DebugCommandArguments = "-workspace=C:\\proj\\BeefTest"
+DebugWorkingDirectory = "$(ProjectDir)\\dist"
+EnvironmentVars = ["_NO_DEBUG_HEAP=1"]
+
+[Configs.Release.Linux64]
+TargetDirectory = "$(WorkspaceDir)/dist"
+TargetName = "BeefIDE"
+OtherLinkFlags = "-lLLVM-18 -lGL libBeefRT.a libIDEHelper.a libBeefySysLib.a libhunspell.so"
 DebugCommandArguments = "-workspace=C:\\proj\\BeefTest"
 DebugWorkingDirectory = "$(ProjectDir)\\dist"
 EnvironmentVars = ["_NO_DEBUG_HEAP=1"]

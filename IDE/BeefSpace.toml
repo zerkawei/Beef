@@ -15,6 +15,9 @@ ConfigSelections = {IDEHelper = {Enabled = false}}
 [Configs.Debug.Win64]
 EnableSideStack = true
 
+[Configs.Debug.Linux64]
+EnableSideStack = true
+
 [Configs.Release.Win32]
 BfOptimizationLevel = "OgPlus"
 EmitDebugInfo = "No"
@@ -23,6 +26,11 @@ ConfigSelections = {IDEHelper = {Enabled = false}}
 
 [Configs.Release.Win64]
 Toolset = "LLVM"
+BfOptimizationLevel = "O3"
+AllocStackTraceDepth = 0
+IntermediateType = "ObjectAndIRCode"
+
+[Configs.Release.Linux64]
 BfOptimizationLevel = "O3"
 AllocStackTraceDepth = 0
 IntermediateType = "ObjectAndIRCode"
@@ -112,5 +120,9 @@ AllocStackTraceDepth = 0
 ConfigSelections = {IDEHelper = {Enabled = false, Config = "Debug"}, IDE = {Config = "Debug"}, Beefy2D = {Config = "Debug"}, Debugger64 = {Config = "Debug"}, BeefySysLib = {Config = "Debug"}}
 
 [Configs.Debug_NoDeps.Win64]
+EnableSideStack = true
+ConfigSelections = {IDE = {Config = "Debug"}, Beefy2D = {Config = "Debug"}, IDEHelper = {Enabled = false, Config = "Debug"}, Debugger64 = {Enabled = false, Config = "Debug"}, BeefySysLib = {Enabled = false, Config = "Debug"}}
+
+[Configs.Debug_NoDeps.Linux64]
 EnableSideStack = true
 ConfigSelections = {IDE = {Config = "Debug"}, Beefy2D = {Config = "Debug"}, IDEHelper = {Enabled = false, Config = "Debug"}, Debugger64 = {Enabled = false, Config = "Debug"}, BeefySysLib = {Enabled = false, Config = "Debug"}}
