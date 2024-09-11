@@ -38,7 +38,7 @@ static HMODULE GetSDLModule(const StringImpl& installDir)
 		String loadPath = installDir + "SDL2.dll";
 		gSDLModule = ::LoadLibraryA(loadPath.c_str());
 #elif defined(BF_PLATFORM_LINUX)
-		String loadPath = installDir + "SDL2.so";
+		String loadPath = "/usr/lib/libSDL2.so";
 		gSDLModule = dlopen(loadPath.c_str(), RTLD_LAZY);
 #endif
 		if (gSDLModule == NULL)

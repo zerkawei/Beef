@@ -19,6 +19,7 @@ do
 	if [[ $i == "sdl" ]]; then
 		echo "Using SDL"
 		USE_SDL="-DBF_ENABLE_SDL=1"
+		LINKOPTS="-lGL "
 	fi
 
 	if [[ $i == "no_ffi" ]]; then
@@ -95,10 +96,10 @@ cd ../IDE/dist
 
 if [[ "$OSTYPE" == "darwin"* ]]; then
 	LIBEXT=dylib
-	LINKOPTS="-Wl,-no_compact_unwind -Wl,-rpath -Wl,@executable_path"
+	LINKOPTS+="-Wl,-no_compact_unwind -Wl,-rpath -Wl,@executable_path"
 else
 	LIBEXT=so
-	LINKOPTS="-ldl -lpthread -Wl,-rpath -Wl,\$ORIGIN"
+	LINKOPTS+="-ldl -lpthread -Wl,-rpath -Wl,\$ORIGIN"
 fi
 
 ln -s -f $ROOTPATH/jbuild_d/Debug/bin/libBeefRT_d.a libBeefRT_d.a
