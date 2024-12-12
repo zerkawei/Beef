@@ -145,6 +145,7 @@ namespace IDE.ui
         bool mImportFolderDeferred;
         bool mImportProjectDeferred;
 		bool mImportInstalledDeferred;
+		bool mImportRemoteDeferred;
         public Dictionary<ListViewItem, ProjectItem> mListViewToProjectMap = new .() ~ delete _;
         public Dictionary<ProjectItem, ProjectListViewItem> mProjectToListViewMap = new .() ~ delete _;
 		public Dictionary<ListViewItem, WorkspaceFolder> mListViewToWorkspaceFolderMap = new .() ~ delete _;
@@ -2543,15 +2544,19 @@ namespace IDE.ui
 
             if ((!mListView.mCancelingEdit) && (listViewItem.mLabel != newValue)) 
             {
+				bool changeLabel = true;
+				var parentLvItem = (ProjectListViewItem)listViewItem.mParentItem;
+
                 if (column == 0)
                 {
 					bool failed = false;
-
+					
 					RenameBlock: do
                     {
 						var projectFolder = projectItem as ProjectFolder;
 						if ((projectFolder != null) && (projectFolder.mParentFolder == null))
 						{
+							changeLabel = false;
 							gApp.RenameProject(projectFolder.mProject, newValue);
 							break;
 						}
@@ -2684,7 +2689,7 @@ namespace IDE.ui
 						IDEApp.sApp.Fail("Failed to rename item");
                         IDEApp.Beep(IDEApp.MessageBeepType.Error);
                         return;
-                    }                    
+                    }
                 }
                 else if (column == 1)
                 {
@@ -2692,11 +2697,11 @@ namespace IDE.ui
                 }
 
                 // Item renamed
-                listViewItem.Label = newValue;
+				if (changeLabel)
+                	listViewItem.Label = newValue;
 				if (projectItem.mIncludeKind != .Auto)
                 	projectItem.mProject.SetChanged();
 
-				var parentLvItem = (ProjectListViewItem)listViewItem.mParentItem;
 				QueueSortItem(parentLvItem);
 				Sort();
             }
@@ -2904,6 +2909,15 @@ namespace IDE.ui
 #endif
 		}
 
+		void ImportRemoteProject()
+		{
+#if !CLI
+			RemoteProjectDialog dialog = new .();
+			dialog.Init();
+			dialog.PopupWindow(gApp.mMainWindow);
+#endif
+		}
+
         public void ShowProjectProperties(Project project)
         {
             var projectProperties = new ProjectProperties(project);
@@ -3081,6 +3095,14 @@ namespace IDE.ui
 					});
 					if (gApp.IsCompiling)
 						anItem.SetDisabled(true);
+
+					anItem = menu.AddItem("Add From Remote...");
+					anItem.mOnMenuItemSelected.Add(new (item) => {
+						mImportRemoteDeferred = true;
+					});
+					if (gApp.IsCompiling)
+						anItem.SetDisabled(true);
+
 					anItem = menu.AddItem("New Folder");
 					anItem.mOnMenuItemSelected.Add(new (item) => {
 						var workspaceFolder = GetSelectedWorkspaceFolder();
@@ -3110,7 +3132,18 @@ namespace IDE.ui
 				}
 				else if (gApp.mWorkspace.IsInitialized)
 				{
+					var item = menu.AddItem("Update Version Locks");
+					item.mDisabled = gApp.mWorkspace.mProjectLockMap.IsEmpty;
+					item.mOnMenuItemSelected.Add(new (item) =>
+					    {
+							List<StringView> projectNames = scope .();
+							for (var projectName in gApp.mWorkspace.mProjectLockMap.Keys)
+								projectNames.Add(projectName);
+							gApp.UpdateProjectVersionLocks(params (Span<StringView>)projectNames);
+					    });
+
 					AddOpenContainingFolder();
+
 					menu.AddItem();
 
 	                AddWorkspaceMenuItems();
@@ -3140,7 +3173,7 @@ namespace IDE.ui
 							    {
 									var projectItem = GetSelectedProjectItem();
 									if (projectItem != null)
-							        	gApp.RetryProjectLoad(projectItem.mProject);
+							        	gApp.RetryProjectLoad(projectItem.mProject, true);
 							    });
 							menu.AddItem();
 							//handled = true;
@@ -3166,6 +3199,38 @@ namespace IDE.ui
 								var projectItem = GetSelectedProjectItem();
 								if (projectItem != null)
 									SetAsStartupProject(projectItem.mProject);
+						    });
+
+						item = menu.AddItem("Update Version Lock");
+						item.mDisabled = (projectItem == null) || (!gApp.mWorkspace.mProjectLockMap.ContainsKey(projectItem.mProject.mProjectName));
+						item.mOnMenuItemSelected.Add(new (item) =>
+						    {
+								var projectItem = GetSelectedProjectItem();
+								if (projectItem != null)
+								{
+									let project = projectItem.mProject;
+									gApp.UpdateProjectVersionLocks(project.mProjectName);
+								}
+						    });
+
+						item = menu.AddItem("Clear Managed Cache");
+						item.mDisabled = (projectItem == null) || (!gApp.mPackMan.IsPathManaged(projectItem.mProject.mProjectDir));
+						item.mOnMenuItemSelected.Add(new (item) =>
+						    {
+								var projectItem = GetSelectedProjectItem();
+								if (projectItem != null)
+								{
+									let project = projectItem.mProject;
+									String hash = scope .();
+									if (gApp.mPackMan.GetManagedHash(project.mProjectDir, hash))
+									{
+										gApp.[Friend]SaveWorkspaceLockData(true);
+										gApp.CloseOldBeefManaged();
+										if (gApp.mPackMan.mCleanHashSet.TryAdd(hash, var entryPtr))
+											*entryPtr = new .(hash);
+										gApp.[Friend]ReloadWorkspace();
+									}
+								}
 						    });
 
 						item = menu.AddItem("Lock Project");
@@ -3568,6 +3633,12 @@ namespace IDE.ui
 			{
 				mImportInstalledDeferred = false;
 				ImportInstalledProject();
+			}
+
+			if (mImportRemoteDeferred)
+			{
+				mImportRemoteDeferred= false;
+				ImportRemoteProject();
 			}
 
 			ValidateCutClipboard();

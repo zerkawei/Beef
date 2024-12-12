@@ -1801,11 +1801,11 @@ void BfTypeInstance::Dispose()
 	mTypeDef = NULL;
 }
 
-int BfTypeInstance::GetSplatCount()
+int BfTypeInstance::GetSplatCount(bool force)
 {
 	if (IsValuelessType())
 		return 0;
-	if (!mIsSplattable)
+	if ((!mIsSplattable) && (!force))
 		return 1;
 	int splatCount = 0;
 	BfTypeUtils::SplatIterate([&](BfType* checkType) { splatCount++; }, this);
@@ -1924,7 +1924,8 @@ BfType* BfTypeInstance::GetUnionInnerType(bool* wantSplat)
 		{
 			SetAndRestoreValue<BfFieldDef*> prevTypeRef(mContext->mCurTypeState->mCurFieldDef, fieldDef);
 
-			mModule->PopulateType(checkInnerType, checkInnerType->IsValueType() ? BfPopulateType_Data : BfPopulateType_Declaration);
+			if (checkInnerType->IsDataIncomplete())
+				mModule->PopulateType(checkInnerType, checkInnerType->IsValueType() ? BfPopulateType_Data : BfPopulateType_Declaration);
 			if (checkInnerType->mSize > unionSize)
 				unionSize = checkInnerType->mSize;
 
@@ -2047,6 +2048,30 @@ bool BfTypeInstance::GetLoweredType(BfTypeUsage typeUsage, BfTypeCode* outTypeCo
 		return false;
 
 	bool deepCheck = false;
+
+	if (mModule->mCompiler->mOptions.mMachineType == BfMachineType_Wasm32)
+	{
+		if (IsComposite())
+		{
+			if (GetSplatCount(true) == 1)
+			{
+				BfType* componentType = NULL;
+				BfTypeUtils::SplatIterate([&](BfType* checkType) { componentType = checkType; }, this);
+				if (componentType != NULL)
+				{
+					if (componentType->IsPrimitiveType())
+					{
+						auto primType = (BfPrimitiveType*)componentType;
+						if (outTypeCode != NULL)
+							*outTypeCode = primType->mTypeDef->mTypeCode;
+						return true;
+					}
+				}
+			}
+			else
+				return false;
+		}
+	}
 
 	if (mModule->mCompiler->mOptions.mPlatformType == BfPlatformType_Windows)
 	{
@@ -2691,14 +2716,20 @@ BfType* BfTypeInstance::GetUnderlyingType()
 	{
 		if (!checkTypeInst->mFieldInstances.empty())
 		{
-			mTypeInfoEx->mUnderlyingType = checkTypeInst->mFieldInstances.back().mResolvedType;
-			return mTypeInfoEx->mUnderlyingType;
+			auto& lastField = checkTypeInst->mFieldInstances.back();
+			if (lastField.mFieldIdx == -1)
+			{
+				auto underlyingType = lastField.mResolvedType;
+				BF_ASSERT(underlyingType != this);
+				mTypeInfoEx->mUnderlyingType = underlyingType;
+				return mTypeInfoEx->mUnderlyingType;
+			}
 		}
 		checkTypeInst = checkTypeInst->mBaseType;
-		if (checkTypeInst->IsIncomplete())
+		if ((checkTypeInst != NULL) && (checkTypeInst->IsIncomplete()))
 			mModule->PopulateType(checkTypeInst, BfPopulateType_Data);
 	}
-	BF_FATAL("Failed");
+	//BF_FATAL("Failed");
 	return mTypeInfoEx->mUnderlyingType;
 }
 
@@ -2957,6 +2988,79 @@ void BfTupleType::Finish()
 
 //////////////////////////////////////////////////////////////////////////
 
+BfTagType::BfTagType()
+{
+	mCreatedTypeDef = false;
+	mSource = NULL;
+	mTypeDef = NULL;	
+}
+
+BfTagType::~BfTagType()
+{
+	mMethodInstanceGroups.Clear();
+	if (mCreatedTypeDef)
+	{
+		delete mTypeDef;
+		mTypeDef = NULL;
+	}
+	delete mSource;
+}
+
+void BfTagType::Init(BfProject* bfProject, BfTypeInstance* valueTypeInstance, const StringImpl& name)
+{
+	auto srcTypeDef = valueTypeInstance->mTypeDef;
+	auto system = valueTypeInstance->mModule->mSystem;
+
+	if (mTypeDef == NULL)
+		mTypeDef = new BfTypeDef();
+	for (auto field : mTypeDef->mFields)
+		delete field;
+	mTypeDef->mFields.Clear();
+	mTypeDef->mSystem = system;
+	mTypeDef->mProject = bfProject;
+	mTypeDef->mTypeCode = srcTypeDef->mTypeCode;
+	mTypeDef->mName = system->mEmptyAtom;
+	mTypeDef->mSystem = system;
+
+	mTypeDef->mHash = srcTypeDef->mHash;
+	mTypeDef->mSignatureHash = srcTypeDef->mSignatureHash;
+	mTypeDef->mTypeCode = BfTypeCode_Enum;
+
+	mCreatedTypeDef = true;
+
+	auto field = BfDefBuilder::AddField(mTypeDef, NULL, name);
+	field->mIsStatic = true;
+	field->mIsConst = true;
+}
+
+void BfTagType::Dispose()
+{
+	if (mCreatedTypeDef)
+	{
+		delete mTypeDef;
+		mTypeDef = NULL;
+		mCreatedTypeDef = false;
+	}
+	BfTypeInstance::Dispose();
+}
+
+void BfTagType::Finish()
+{
+	BF_ASSERT(!mTypeFailed);
+
+	auto bfSystem = mTypeDef->mSystem;
+	mSource = new BfSource(bfSystem);
+	mTypeDef->mSource = mSource;
+	mTypeDef->mSource->mRefCount++;
+
+	BfDefBuilder bfDefBuilder(bfSystem);
+	bfDefBuilder.mCurTypeDef = mTypeDef;
+	bfDefBuilder.mCurDeclaringTypeDef = mTypeDef;
+	bfDefBuilder.FinishTypeDef(true);
+}
+
+//////////////////////////////////////////////////////////////////////////
+
 BfBoxedType::~BfBoxedType()
 {
 	//if ((mTypeDef != NULL) && (mTypeDef->mEmitParent != NULL))
@@ -3102,6 +3206,7 @@ BfResolvedTypeSet::~BfResolvedTypeSet()
 #define HASH_CONSTEXPR 12
 #define HASH_GLOBAL 13
 #define HASH_DOTDOTDOT 14
+#define HASH_TAG 15
 
 BfVariant BfResolvedTypeSet::EvaluateToVariant(LookupContext* ctx, BfExpression* expr, BfType*& outType)
 {
@@ -3203,6 +3308,13 @@ int BfResolvedTypeSet::DoHash(BfType* type, LookupContext* ctx, bool allowRef, i
 			hashVal = HASH_MIX(hashVal, HASH_DOTDOTDOT);
 
 		return hashVal;
+	}
+	else if ((type->IsEnum()) && (type->IsOnDemand()))
+	{
+		BfTypeInstance* typeInstance = type->ToTypeInstance();
+		auto fieldName = typeInstance->mTypeDef->mFields[0]->mName;		
+		int nameHash = (int)Hash64(fieldName.c_str(), (int)fieldName.length());
+		return nameHash ^ HASH_TAG;
 	}
 	else if (type->IsTypeInstance())
 	{
@@ -3417,7 +3529,21 @@ BfTypeDef* BfResolvedTypeSet::FindRootCommonOuterType(BfTypeDef* outerType, Look
 {
 	if (ctx->mModule->mCurTypeInstance == NULL)
 		return NULL;
-	BfTypeDef* commonOuterType = ctx->mModule->FindCommonOuterType(ctx->mModule->mCurTypeInstance->mTypeDef, outerType);
+
+	BfTypeDef* commonOuterType = NULL;
+
+	auto checkOuterTypeInst = ctx->mModule->mCurTypeInstance;
+	while (checkOuterTypeInst != NULL)
+	{
+		commonOuterType = ctx->mModule->FindCommonOuterType(checkOuterTypeInst->mTypeDef, outerType);
+		if (commonOuterType != NULL)
+		{			
+			outOuterTypeInstance = checkOuterTypeInst;
+			break;
+		}
+		checkOuterTypeInst = checkOuterTypeInst->mBaseType;
+	}
+
 	if ((commonOuterType == NULL) && (outerType != NULL))
 	{
 		auto staticSearch = ctx->mModule->GetStaticSearch();
@@ -3462,7 +3588,11 @@ int BfResolvedTypeSet::DoHash(BfTypeReference* typeRef, LookupContext* ctx, BfHa
 				auto outerType = ctx->mModule->mSystem->GetOuterTypeNonPartial(typeDef);
 
 				if (typeRef == ctx->mRootTypeRef)
+				{
 					commonOuterType = FindRootCommonOuterType(outerType, ctx, checkTypeInstance);
+					if ((checkTypeInstance != NULL) && (checkTypeInstance->IsBoxed()))
+						checkTypeInstance = checkTypeInstance->GetUnderlyingType()->ToTypeInstance();
+				}
 				else
 					commonOuterType = ctx->mModule->FindCommonOuterType(ctx->mModule->mCurTypeInstance->mTypeDef, outerType);
 
@@ -4107,6 +4237,17 @@ int BfResolvedTypeSet::DoHash(BfTypeReference* typeRef, LookupContext* ctx, BfHa
 	{
 		ctx->mFailed = true;
 		return 0;
+	}
+	else if (auto tagTypeRef = BfNodeDynCastExact<BfTagTypeRef>(typeRef))
+	{
+		int nameHash = 0;
+		if (tagTypeRef->mNameNode != NULL)
+		{
+			auto fieldName = tagTypeRef->mNameNode;
+			const char* nameStr = fieldName->GetSourceData()->mSrc + fieldName->GetSrcStart();
+			nameHash = (int)Hash64(nameStr, fieldName->GetSrcLength());
+		}
+		return nameHash ^ HASH_TAG;
 	}
 	else
 	{
@@ -4790,6 +4931,15 @@ bool BfResolvedTypeSet::Equals(BfType* lhs, BfTypeReference* rhs, LookupContext*
  			return false;
 
 		return true;
+	}
+	else if ((lhs->IsEnum()) && (lhs->IsOnDemand()))
+	{
+		BfTypeInstance* typeInstance = lhs->ToTypeInstance();
+		auto fieldName = typeInstance->mTypeDef->mFields[0]->mName;		
+		auto tagTypeRef = BfNodeDynCastExact<BfTagTypeRef>(rhs);
+		if (tagTypeRef == NULL)
+			return false;
+		return tagTypeRef->mNameNode->Equals(fieldName);
 	}
 	else if (lhs->IsTypeInstance())
 	{

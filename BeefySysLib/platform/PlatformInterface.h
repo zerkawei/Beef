@@ -172,6 +172,7 @@ enum BfpProcessResult
 	BfpProcessResult_Ok = BfpResult_Ok,
 	BfpProcessResult_UnknownError = BfpResult_UnknownError,
 	BfpProcessResult_InsufficientBuffer = BfpResult_InsufficientBuffer,
+	BfpProcessResult_NotFound = BfpResult_NotFound
 };
 
 BFP_EXPORT intptr BFP_CALLTYPE BfpProcess_GetCurrentId();
@@ -179,6 +180,7 @@ BFP_EXPORT bool BFP_CALLTYPE BfpProcess_IsRemoteMachine(const char* machineName)
 BFP_EXPORT BfpProcess* BFP_CALLTYPE BfpProcess_GetById(const char* machineName, int processId, BfpProcessResult* outResult);
 BFP_EXPORT void BFP_CALLTYPE BfpProcess_Enumerate(const char* machineName, BfpProcess** outProcesses, int* inOutProcessesSize, BfpProcessResult* outResult);
 BFP_EXPORT void BFP_CALLTYPE BfpProcess_Release(BfpProcess* process);
+BFP_EXPORT int BFP_CALLTYPE BfpProcess_GetExitCode(BfpProcess* process, BfpProcessResult* outResult);
 BFP_EXPORT void BFP_CALLTYPE BfpProcess_GetMainWindowTitle(BfpProcess* process, char* outTitle, int* inOutTitleSize, BfpProcessResult* outResult);
 BFP_EXPORT void BFP_CALLTYPE BfpProcess_GetProcessName(BfpProcess* process, char* outName, int* inOutNameSize, BfpProcessResult* outResult);
 BFP_EXPORT int BFP_CALLTYPE BfpProcess_GetProcessId(BfpProcess* process);

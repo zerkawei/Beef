@@ -90,6 +90,17 @@ namespace System.IO
 			return .Ok;
 		}
 
+  		/// Copies and overwrites the contents of fromPath into toPath.
+		public static Result<void, Platform.BfpFileResult> Copy(StringView fromPath, StringView toPath)
+		{
+			Try!(Directory.CreateDirectory(toPath));
+			for (var file in Directory.EnumerateFiles(fromPath))
+				Try!(File.Copy(file.GetFilePath(.. scope .()), file.GetFileName(.. scope $"{toPath}/")));
+			for (var dir in Directory.EnumerateDirectories(fromPath))
+				Try!(Directory.Copy(dir.GetFilePath(.. scope .()), dir.GetFileName(.. scope $"{toPath}/")));
+			return .Ok;
+		}
+
 		public static void GetCurrentDirectory(String outPath)
 		{
 			Platform.GetStrHelper(outPath, scope (outPtr, outSize, outResult) =>
@@ -126,6 +137,23 @@ namespace System.IO
 				bfpFlags |= .Files;
 			let findFileData = Platform.BfpFindFileData_FindFirstFile(useStr, bfpFlags, null);
 			return FileEnumerator(useStr, findFileData);
+		}
+
+		public static FileEnumerator Enumerate(StringView dirPath)
+		{
+			let searchStr = scope String();
+			searchStr.Append(dirPath);
+			searchStr.Append("/*");
+			return Enumerate(searchStr, .Directories | .Files);
+		}
+
+		public static FileEnumerator Enumerate(StringView dirPath, StringView wildcard)
+		{
+			let searchStr = scope String();
+			searchStr.Append(dirPath);
+			searchStr.Append("/");
+			searchStr.Append(wildcard);
+			return Enumerate(searchStr, .Directories | .Files);
 		}
 
 		public static FileEnumerator EnumerateDirectories(StringView dirPath)

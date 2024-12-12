@@ -652,7 +652,10 @@ namespace IDE.ui
 				DataUpdated();
 
 				if (!replaceAll)
+				{
+					mCurFindIdx = searchStart;
 					break;
+				}
 
                 /*if (flags == (byte)SourceElementFlags.Find_CurrentSelection)
                 {
@@ -738,6 +741,8 @@ namespace IDE.ui
             var sourceContent = mEditWidget.Content as SourceEditWidgetContent;
             if (mSelectionStart != null)
 			{
+				if (mSelectionEnd != null)
+					sourceContent.mSelection = .(mSelectionStart.mIndex, mSelectionEnd.mIndex);
 				if (sourceContent != null)
                 	sourceContent.PersistentTextPositions.Remove(mSelectionStart);
 				DeleteAndNullify!(mSelectionStart);

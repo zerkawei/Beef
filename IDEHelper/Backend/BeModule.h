@@ -858,16 +858,23 @@ enum BeCmpKind
 
 	BeCmpKind_SLT,
 	BeCmpKind_ULT,
+	BeCmpKind_OLT,
 	BeCmpKind_SLE,
 	BeCmpKind_ULE,
+	BeCmpKind_OLE,
 	BeCmpKind_EQ,
+	BeCmpKind_OEQ,
 	BeCmpKind_NE,
+	BeCmpKind_UNE,
 	BeCmpKind_SGT,
 	BeCmpKind_UGT,
+	BeCmpKind_OGT,
 	BeCmpKind_SGE,
 	BeCmpKind_UGE,
+	BeCmpKind_OGE,
 	BeCmpKind_NB,
 	BeCmpKind_NO,
+	BeCmpKind_Sign,
 };
 
 class BeCmpInst : public BeInst
@@ -2371,6 +2378,7 @@ public:
 
 	static BeCmpKind InvertCmp(BeCmpKind cmpKind);
 	static BeCmpKind SwapCmpSides(BeCmpKind cmpKind);
+	static bool IsCmpOrdered(BeCmpKind cmpKind);
 	void SetActiveFunction(BeFunction* function);
 	BeArgument* GetArgument(int arg);
 	BeBlock* CreateBlock(const StringImpl& name);

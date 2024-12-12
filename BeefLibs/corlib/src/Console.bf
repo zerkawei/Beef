@@ -90,13 +90,23 @@ namespace System
 
 		static function void(StringView str) OutString = => OutString_Simple;
 
-		public static extern void PutChar(char8 c);
+#if !BF_RUNTIME_DISABLE && !BF_PLATFORM_WASM
+		private static extern void PutChars(char8* c, int32 len);
+#else
+		[CLink]
+		private static extern int32 putchar(char8 c);
+		[LinkName("Console_PutChars")]
+		private static void PutChars(char8* c, int32 len)
+		{
+			for (int i < len)
+				putchar(c[i]);
+		}
+#endif
 		public static extern void ReopenHandles();
 
 		static void OutString_Simple(StringView str)
 		{
-			for (var c in str.RawChars)
-				PutChar(c);
+			PutChars(str.Ptr, (.)str.Length);
 		}
 
 		static void OutString_Ex(StringView str)

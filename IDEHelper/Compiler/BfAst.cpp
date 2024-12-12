@@ -116,6 +116,11 @@ void BfStructuralVisitor::Visit(BfGenericArgumentsNode* genericArgumentsNode)
 	Visit(genericArgumentsNode->ToBase());
 }
 
+void BfStructuralVisitor::Visit(BfCtorExplicitNode* ctorExplicitNode)
+{
+	Visit(ctorExplicitNode->ToBase());
+}
+
 void BfStructuralVisitor::Visit(BfStatement* stmt)
 {
 	Visit(stmt->ToBase());
@@ -292,6 +297,11 @@ void BfStructuralVisitor::Visit(BfGenericInstanceTypeRef* typeRef)
 }
 
 void BfStructuralVisitor::Visit(BfTupleTypeRef* typeRef)
+{
+	Visit(typeRef->ToBase());
+}
+
+void BfStructuralVisitor::Visit(BfTagTypeRef* typeRef)
 {
 	Visit(typeRef->ToBase());
 }

@@ -76,7 +76,9 @@ namespace IDE
 		OpenOrNew,
 		Test,
 		Run,
-		GetVersion
+		Update,
+		GetVersion,
+		CleanCache
 	}
 
 	enum HotResolveState
@@ -182,6 +184,7 @@ namespace IDE
 		public MainFrame mMainFrame;
 		public GlobalUndoManager mGlobalUndoManager = new GlobalUndoManager() ~ delete _;
 		public SourceControl mSourceControl = new SourceControl() ~ delete _;
+		public GitManager mGitManager = new .() ~ delete _;
 
 		public WidgetWindow mPopupWindow;
 		public RecentFileSelector mRecentFileSelector;
@@ -223,6 +226,7 @@ namespace IDE
 		public WakaTime mWakaTime ~ delete _;
 
 		public PackMan mPackMan = new PackMan() ~ delete _;
+		public HashSet<String> mWantUpdateVersionLocks ~ DeleteContainerAndItems!(_);
 		public Settings mSettings = new Settings() ~ delete _;
 		public Workspace mWorkspace = new Workspace() ~ delete _;
 		public FileWatcher mFileWatcher = new FileWatcher() ~ delete _;
@@ -394,6 +398,11 @@ namespace IDE
 			public String mPath ~ delete _;
 		}
 
+		public class EmsdkInstalledCmd : ExecutionCmd
+		{
+			public String mPath ~ delete _;
+		}
+
 		public class BuildCompletedCmd : ExecutionCmd
 		{
 			public Stopwatch mStopwatch ~ delete _;
@@ -406,7 +415,7 @@ namespace IDE
 
 		class ProcessBfCompileCmd : ExecutionCmd
 		{
-			public BfPassInstance mBfPassInstance;
+			public BfPassInstance mBfPassInstance ~ delete _;
 			public CompileKind mCompileKind;
 			public Project mHotProject;
 			public Stopwatch mStopwatch ~ delete _;
@@ -507,6 +516,8 @@ namespace IDE
 			public bool mAutoDelete = true;
 			public bool mCanceled;
 			public bool mIsTargetRun;
+			public bool mDone;
+			public bool mSmartOutput;
 
 			public ~this()
 			{
@@ -536,6 +547,14 @@ namespace IDE
 			{
 				mCanceled = true;
 				mProcess.Kill(0, .KillChildren);
+			}
+
+			public void Release()
+			{
+				if (!mDone)
+					mAutoDelete = true;
+				else
+					delete this;
 			}
 		}
 		List<ExecutionInstance> mExecutionInstances = new List<ExecutionInstance>() ~ DeleteContainerAndItems!(_);
@@ -593,6 +612,15 @@ namespace IDE
 					}
 				}
 				return false;
+			}
+		}
+
+		public Workspace.PlatformType CurrentPlatform
+		{
+			get
+			{
+				Workspace.Options workspaceOptions = GetCurWorkspaceOptions();
+				return Workspace.PlatformType.GetFromName(mPlatformName, workspaceOptions.mTargetTriple);
 			}
 		}
 
@@ -2140,6 +2168,91 @@ namespace IDE
 			return true;
 		}
 
+		bool SaveWorkspaceLockData(bool force = false)
+		{
+			if ((mWorkspace.mProjectLockMap.IsEmpty) && (!force))
+				return true;
+
+			StructuredData sd = scope StructuredData();
+			sd.CreateNew();
+			sd.Add("FileVersion", 1);
+			using (sd.CreateObject("Locks"))
+			{
+				List<String> projectNames = scope .(mWorkspace.mProjectLockMap.Keys);
+				projectNames.Sort();
+
+				for (var projectName in projectNames)
+				{
+					var lock = mWorkspace.mProjectLockMap[projectName];
+					switch (lock)
+					{
+					case .Git(let url, let tag, let hash):
+						using (sd.CreateObject(projectName))
+						{
+							using (sd.CreateObject("Git"))
+							{
+								sd.Add("URL", url);
+								sd.Add("Tag", tag);
+								sd.Add("Hash", hash);
+							}
+						}
+					default:
+					}
+				}
+			}
+
+			String jsonString = scope String();
+			sd.ToTOML(jsonString);
+
+			String lockFileName = scope String();
+			GetWorkspaceLockFileName(lockFileName);
+			if (lockFileName.IsEmpty)
+				return false;
+			return SafeWriteTextFile(lockFileName, jsonString);
+		}
+
+		bool LoadWorkspaceLockData()
+		{
+			String lockFilePath = scope String();
+			GetWorkspaceLockFileName(lockFilePath);
+			if (lockFilePath.IsEmpty)
+				return true;
+
+			var sd = scope StructuredData();
+			if (sd.Load(lockFilePath) case .Err)
+				return false;
+
+			for (var projectName in sd.Enumerate("Locks"))
+			{
+				Workspace.Lock lock = default;
+				if (sd.Contains("Git"))
+				{
+					using (sd.Open("Git"))
+					{
+						var url = sd.GetString("URL", .. new .());
+						var tag = sd.GetString("Tag", .. new .());
+						var hash = sd.GetString("Hash", .. new .());
+						lock = .Git(url, tag, hash);
+					}
+				}
+
+				mWorkspace.SetLock(projectName, lock);
+			}
+
+			return true;
+		}
+
+		bool GetWorkspaceLockFileName(String outResult)
+		{
+			if (mWorkspace.mDir == null)
+				return false;
+			if (mWorkspace.mCompositeFile != null)
+				outResult.Append(mWorkspace.mCompositeFile.mFilePath, ".bfuser");
+			else
+				outResult.Append(mWorkspace.mDir, "/BeefSpace_Lock.toml");
+			return true;
+		}
+
 		void GetDefaultLayoutDataFileName(String outResult)
 		{
 			outResult.Append(mInstallDir, "/DefaultLayout.toml");
@@ -2372,6 +2485,17 @@ namespace IDE
 			project.mDependencies.Add(dep);
 		}
 
+		public void ProjectCreated(Project project)
+		{
+			mProjectPanel.InitProject(project, mProjectPanel.GetSelectedWorkspaceFolder());
+			mProjectPanel.Sort();
+			mWorkspace.FixOptions();
+			mWorkspace.mHasChanged = true;
+
+			mWorkspace.ClearProjectNameCache();
+			CurrentWorkspaceConfigChanged();
+		}
+
 		public Project CreateProject(String projName, String projDir, Project.TargetType targetType)
 		{
 			Project project = new Project();
@@ -2386,13 +2510,8 @@ namespace IDE
 			AddNewProjectToWorkspace(project);
 			project.FinishCreate();
 
-			mProjectPanel.InitProject(project, mProjectPanel.GetSelectedWorkspaceFolder());
-			mProjectPanel.Sort();
-			mWorkspace.FixOptions();
-			mWorkspace.mHasChanged = true;
+			ProjectCreated(project);
 
-			mWorkspace.ClearProjectNameCache();
-			CurrentWorkspaceConfigChanged();
 			return project;
 		}
 
@@ -2511,6 +2630,8 @@ namespace IDE
 			mBookmarksPanel.Clear();
 
 			mBookmarkManager.Clear();
+
+			mPackMan.CancelAll();
 
 			OutputLine("Workspace closed.");
 		}
@@ -2752,9 +2873,16 @@ namespace IDE
 				return .Err;
 		}
 
+		public void CheckDependenciesLoaded()
+		{
+			for (var project in mWorkspace.mProjects)
+				project.CheckDependenciesLoaded();
+		}
+
 		void FlushDeferredLoadProjects(bool addToUI = false)
 		{
 			bool hasDeferredProjects = false;
+			bool loadFailed = false;
 
 			while (true)
 			{
@@ -2762,11 +2890,29 @@ namespace IDE
 				for (int projectIdx = 0; projectIdx < mWorkspace.mProjects.Count; projectIdx++)
 				{
 					var project = mWorkspace.mProjects[projectIdx];
+
+					if (project.mDeferState == .Searching)
+					{
+						if (mPackMan.mFailed)
+						{
+							// Just let it fail now
+							LoadFailed();
+							project.mDeferState = .None;
+							project.mFailed = true;
+							loadFailed = true;
+						}
+						else
+						{
+							hasDeferredProjects = true;
+						}
+					}
+
 					if ((project.mDeferState == .ReadyToLoad) || (project.mDeferState == .Pending))
 					{
 						hadLoad = true;
 
 						var projectPath = project.mProjectPath;
+						
 						if (project.mDeferState == .Pending)
 						{
 							hasDeferredProjects = true;
@@ -2789,9 +2935,26 @@ namespace IDE
 			}
 
 			if (hasDeferredProjects)
+			{
 				mWorkspace.mProjectLoadState = .Preparing;
+			}
 			else
+			{
 				mWorkspace.mProjectLoadState = .Loaded;
+				SaveWorkspaceLockData();
+				CheckDependenciesLoaded();
+			}
+
+			if (loadFailed)
+			{
+				mProjectPanel.RebuildUI();
+			}
+		}
+
+		public void CancelWorkspaceLoading()
+		{
+			mPackMan.CancelAll();
+			FlushDeferredLoadProjects();
 		}
 
 		protected void LoadWorkspace(BeefVerb verb)
@@ -2932,6 +3095,7 @@ namespace IDE
 			}
 			else
 			{
+				LoadWorkspaceLockData();
 				mWorkspace.mProjectFileEntries.Add(new .(workspaceFileName));
 
 				if (mVerb == .New)
@@ -3039,9 +3203,10 @@ namespace IDE
 				outRelaunchCmd.Append(" -safe");
 		}
 
-		public void RetryProjectLoad(Project project)
+		public void RetryProjectLoad(Project project, bool reloadConfig)
 		{
-			LoadConfig();
+			if (reloadConfig)
+				LoadConfig();
 
 			var projectPath = project.mProjectPath;
 			if (!project.Load(projectPath))
@@ -3049,6 +3214,8 @@ namespace IDE
 				Fail(scope String()..AppendF("Failed to load project '{0}' from '{1}'", project.mProjectName, projectPath));
 				LoadFailed();
 				project.mFailed = true;
+				FlushDeferredLoadProjects();
+				mProjectPanel?.RebuildUI();
 			}
 			else
 			{
@@ -3056,7 +3223,7 @@ namespace IDE
 				mWorkspace.FixOptions();
 
 				project.mFailed = false;
-				mProjectPanel.RebuildUI();
+				mProjectPanel?.RebuildUI();
 				CurrentWorkspaceConfigChanged();
 			}
 		}
@@ -3075,7 +3242,17 @@ namespace IDE
 			String verConfigDir = mWorkspace.mDir;
 
 			if (let project = mWorkspace.FindProject(projectName))
+			{
+				switch (useVerSpec)
+				{
+				case .Git(let url, let ver):
+					if (ver != null)
+						mPackMan.UpdateGitConstraint(url, ver);
+				default:
+				}
+
 				return project;
+			}
 
 			if (useVerSpec case .SemVer)
 			{
@@ -3148,27 +3325,24 @@ namespace IDE
 			case .SemVer(let semVer):
 				//
 			case .Git(let url, let ver):
-				var verReference = new Project.VerReference();
-				verReference.mSrcProjectName = new String(projectName);
-				verReference.mVerSpec = _.Duplicate();
-				project.mVerReferences.Add(verReference);
-
+			
 				var checkPath = scope String();
-				if (mPackMan.CheckLock(projectName, checkPath))
+				if (mPackMan.CheckLock(projectName, checkPath, var projectFailed))
 				{
 					projectFilePath = scope:: String(checkPath);
 				}
 				else
+				{
+					mPackMan.GetWithVersion(projectName, url, ver);
 					isDeferredLoad = true;
+				}
 			default:
 				Fail("Invalid version specifier");
 				return .Err(.InvalidVersionSpec);
 			}
 
 			if ((projectFilePath == null) && (!isDeferredLoad))
-			{
 				return .Err(.NotFound);
-			}
 
 			if (isDeferredLoad)
 			{
@@ -3190,6 +3364,59 @@ namespace IDE
 			success = true;
 			AddProjectToWorkspace(project, false);*/
 			return .Ok(project);
+		}
+
+		public void UpdateProjectVersionLocks(params Span<StringView> projectNames)
+		{
+			bool removedLock = false;
+
+			for (var projectName in projectNames)
+			{
+				if (var kv = gApp.mWorkspace.mProjectLockMap.GetAndRemoveAlt(projectName))
+				{
+					removedLock = true;
+					delete kv.key;
+					kv.value.Dispose();
+				}
+			}
+
+			if (removedLock)
+			{
+				if (SaveAll())
+				{
+					SaveWorkspaceLockData(true);
+					CloseOldBeefManaged();
+					ReloadWorkspace();
+				}
+			}
+		}
+
+		public void UpdateProjectVersionLocks(Span<String> projectNames)
+		{
+			List<StringView> svNames = scope .();
+			for (var name in projectNames)
+				svNames.Add(name);
+			UpdateProjectVersionLocks(params (Span<StringView>)svNames);
+		}
+
+		public void NotifyProjectVersionLocks(Span<String> projectNames)
+		{
+			if (projectNames.IsEmpty)
+				return;
+
+			String message = scope .();
+			message.Append((projectNames.Length == 1) ? "Project " : "Projects ");
+			for (var projectName in projectNames)
+			{
+				if (@projectName.Index > 0)
+					message.Append(", ");
+				message.AppendF($"'{projectName}'");
+			}
+
+			message.Append((projectNames.Length == 1) ? " has " : " have ");
+
+			message.AppendF("modified version constraints. Use 'Update Version Lock' in the project or workspace right-click menus to apply the new constraints.");
+			MessageDialog("Version Constraints Modified", message, DarkTheme.sDarkTheme.mIconWarning);
 		}
 
 		protected void WorkspaceLoaded()
@@ -3843,9 +4070,9 @@ namespace IDE
 			return dialog;
 		}
 
-		public void MessageDialog(String title, String text)
+		public void MessageDialog(String title, String text, Image icon = null)
 		{
-			Dialog dialog = ThemeFactory.mDefault.CreateDialog(title, text);
+			Dialog dialog = ThemeFactory.mDefault.CreateDialog(title, text, icon);
 			dialog.mDefaultButton = dialog.AddButton("OK");
 			dialog.mEscButton = dialog.mDefaultButton;
 			dialog.PopupWindow(mMainWindow);
@@ -5647,6 +5874,15 @@ namespace IDE
 		[IDECommand]
 		protected void RunTests(bool includeIgnored, bool debug)
 		{
+			var workspaceOptions = GetCurWorkspaceOptions();
+			if (CurrentPlatform == .Wasm)
+			{
+				if (workspaceOptions.mBuildKind != .Test)
+					mMainFrame.mStatusBar.SelectConfig("Test");
+				CompileAndRun(true);
+				return;
+			}
+
 			if (mOutputPanel != null)
 			{
 				ShowPanel(mOutputPanel, false);
@@ -5667,7 +5903,6 @@ namespace IDE
 
 			String prevConfigName = scope String(mConfigName);
 
-			var workspaceOptions = GetCurWorkspaceOptions();
 			if (workspaceOptions.mBuildKind != .Test)
 			{
 				mMainFrame.mStatusBar.SelectConfig("Test");
@@ -5681,10 +5916,12 @@ namespace IDE
 				return;
 			}
 
+			var platformType = Workspace.PlatformType.GetFromName(gApp.mPlatformName, workspaceOptions.mTargetTriple);
+
 			mLastTestFailed = false;
 			mTestManager = new TestManager();
 			mTestManager.mPrevConfigName = new String(prevConfigName);
-			mTestManager.mDebug = debug;
+			mTestManager.mDebug = debug && (platformType != .Wasm);
 			mTestManager.mIncludeIgnored = includeIgnored;
 
 			if (mOutputPanel != null)
@@ -7428,6 +7665,37 @@ namespace IDE
 				CloseDocument(activeDocumentPanel);
 		}
 
+		public void CloseOldBeefManaged()
+		{
+			List<SourceViewPanel> pendingClosePanels = scope .();
+			WithSourceViewPanels(scope (sourceViewPanel) =>
+				{
+					if (sourceViewPanel.mProjectSource != null)
+					{
+						var checkHash = gApp.mPackMan.GetHashFromFilePath(sourceViewPanel.mFilePath, .. scope .());
+						if (!checkHash.IsEmpty)
+						{
+							bool foundHash = false;
+
+							if (gApp.mWorkspace.mProjectLockMap.TryGet(sourceViewPanel.mProjectSource.mProject.mProjectName, ?, var lock))
+							{
+								if (lock case .Git(let url, let tag, let hash))
+								{
+									if (hash == checkHash)
+										foundHash = true;
+								}
+							}
+
+							if (!foundHash)
+								pendingClosePanels.Add(sourceViewPanel);
+						}
+					}
+				});
+
+			for (var sourceViewPanel in pendingClosePanels)
+				CloseDocument(sourceViewPanel);
+		}
+
 		public SourceViewPanel ShowProjectItem(ProjectItem projectItem, bool showTemp = true, bool setFocus = true)
 		{
 			if (projectItem is ProjectSource)
@@ -7840,7 +8108,7 @@ namespace IDE
 				case "-autoshutdown":
 					mDebugAutoShutdownCounter = 200;
 				case "-new":
-					mVerb = .New;
+					mVerb = .Open;
 				case "-testNoExit":
 					mExitWhenTestScriptDone = false;
 				case "-firstRun":
@@ -8085,15 +8353,16 @@ namespace IDE
 #endif
 		}
 
-		public virtual void OutputErrorLine(String format, params Object[] args)
+		public virtual void OutputErrorLine(StringView format, params Object[] args)
 		{
 			mWantShowOutput = true;
 			var errStr = scope String();
-			errStr.Append("ERROR: ", format);
+			errStr.Append("ERROR: ");
+			errStr.Append(format);
 			OutputLineSmart(errStr, params args);
 		}
 
-		public virtual void OutputWarnLine(String format, params Object[] args)
+		public virtual void OutputWarnLine(StringView format, params Object[] args)
 		{
 			var warnStr = scope String();
 			warnStr.AppendF(format, params args);
@@ -8108,7 +8377,7 @@ namespace IDE
 			OutputLine(outStr);
 		}
 
-		public virtual void OutputLineSmart(String format, params Object[] args)
+		public virtual void OutputLineSmart(StringView format, params Object[] args)
 		{
 			String outStr;
 			if (args.Count > 0)
@@ -8740,7 +9009,7 @@ namespace IDE
 
 		const int cArgFileThreshold = 0x2000 - 1;
 
-		public ExecutionQueueCmd QueueRun(String fileName, String args, String workingDir, ArgsFileKind argsFileKind = .None)
+		public ExecutionQueueCmd QueueRun(StringView fileName, StringView args, StringView workingDir, ArgsFileKind argsFileKind = .None)
 		{
 			var executionQueueCmd = new ExecutionQueueCmd();
 			executionQueueCmd.mFileName = new String(fileName);
@@ -8749,7 +9018,7 @@ namespace IDE
 			if (fileName.Length + args.Length + 1 > cArgFileThreshold)
 			{
 				// Only use UTF16 if we absolutely need to
-				if ((argsFileKind == .UTF16WithBom) && (!args.HasMultibyteChars()))
+				if ((argsFileKind == .UTF16WithBom) && (!args.HasMultibyteChars))
 					executionQueueCmd.mUseArgsFile = .UTF8;
 				else
 					executionQueueCmd.mUseArgsFile = argsFileKind;
@@ -8893,11 +9162,11 @@ namespace IDE
 			NoWait = 8,
 		}
 
-		public ExecutionInstance DoRun(String inFileName, String args, String workingDir, ArgsFileKind useArgsFile, Dictionary<String, String> envVars = null, String stdInData = null, RunFlags runFlags = .None, String reference = null)
+		public ExecutionInstance DoRun(StringView inFileName, StringView args, StringView workingDir, ArgsFileKind useArgsFile, Dictionary<String, String> envVars = null, String stdInData = null, RunFlags runFlags = .None, String reference = null)
 		{
 			//Debug.Assert(executionInstance == null);
 
-			String fileName = scope String(inFileName ?? "");
+			String fileName = scope String(inFileName);
 			QuoteIfNeeded(fileName);
 
 			ProcessStartInfo startInfo = scope ProcessStartInfo();
@@ -9091,7 +9360,10 @@ namespace IDE
 				{
 					for (var str in executionInstance.mDeferredOutput)
 					{
-						OutputLine(str);
+						if (executionInstance.mSmartOutput)
+							OutputLineSmart(str);
+						else
+							OutputLine(str);
 						delete str;
 					}
 					executionInstance.mDeferredOutput.Clear();
@@ -9167,6 +9439,7 @@ namespace IDE
 				if (isDone)
 				{
 					mExecutionInstances.RemoveAt(0);
+					executionInstance.mDone = true;
 					if (executionInstance.mAutoDelete)
 						delete executionInstance;
 				}
@@ -9370,6 +9643,8 @@ namespace IDE
 					}
 
 					ProcessBeefCompileResults(processCompileCmd.mBfPassInstance, processCompileCmd.mCompileKind, processCompileCmd.mHotProject, processCompileCmd.mStopwatch);
+					processCompileCmd.mBfPassInstance = null;
+
 					if (mHotResolveState != .None)
 					{
 						if (compileInstance.mCompileResult == .Success)
@@ -9517,6 +9792,11 @@ namespace IDE
 							delete projectName;
 							delete filePath;
 						});
+				}
+				else if (var emsdkCmd = next as EmsdkInstalledCmd)
+				{
+					gApp.mSettings.mEmscriptenPath.Set(emsdkCmd.mPath);
+					gApp.mSettings.Save();
 				}
 				else
 				{
@@ -10015,7 +10295,7 @@ namespace IDE
 #endif
 			}
 			mWorkspace.ClearProjectNameCache();
-			mProjectPanel.RehupProjects();
+			mProjectPanel?.RehupProjects();
 		}
 
 		/*public string GetClangDepConfigName(Project project)
@@ -10052,8 +10332,8 @@ namespace IDE
 					RemoveProjectItems(project);
 				}
 
-				mBfResolveCompiler.QueueDeferredResolveAll();
-				mBfResolveCompiler.QueueRefreshViewCommand(.FullRefresh);
+				mBfResolveCompiler?.QueueDeferredResolveAll();
+				mBfResolveCompiler?.QueueRefreshViewCommand(.FullRefresh);
 				return;
 			}
 
@@ -10081,11 +10361,14 @@ namespace IDE
 		{
 			mWantsBeefClean = true;
 
+			var checkDeclName = (project.mProjectName !== project.mProjectNameDecl) && (mWorkspace.FindProject(project.mProjectNameDecl) == project);
+
 			for (var checkProject in mWorkspace.mProjects)
 			{
 				for (var dep in checkProject.mDependencies)
 				{
-					if (dep.mProjectName == project.mProjectName)
+					if ((dep.mProjectName == project.mProjectName) ||
+						((checkDeclName) && (dep.mProjectName == project.mProjectNameDecl)))
 					{
 						dep.mProjectName.Set(newName);
 						checkProject.SetChanged();
@@ -10103,13 +10386,26 @@ namespace IDE
 			}
 
 			project.mProjectName.Set(newName);
+			if (project.mProjectNameDecl != project.mProjectName)
+				delete project.mProjectNameDecl;
+			project.mProjectNameDecl = project.mProjectName;
 			project.SetChanged();
 			mWorkspace.ClearProjectNameCache();
+
+			mProjectPanel.RebuildUI();
 		}
 
 		public void RemoveProject(Project project)
 		{
 			RemoveProjectItems(project);
+
+			if (mWorkspace.mProjectLockMap.GetAndRemove(project.mProjectName) case .Ok(let kv))
+			{
+				delete kv.key;
+				kv.value.Dispose();
+				if (mWorkspace.mProjectLockMap.IsEmpty)
+					SaveWorkspaceLockData(true);
+			}
 
 			project.mDeleted = true;
 			mWorkspace.SetChanged();
@@ -10586,6 +10882,9 @@ namespace IDE
 								case "VSToolPath_x64":
 									newString = gApp.mSettings.mVSSettings.mBin64Path;
 									IDEUtils.FixFilePath(newString);
+								case "EmccPath":
+									newString = scope:ReplaceBlock String();
+									newString.AppendF($"{gApp.mSettings.mEmscriptenPath}/upstream/emscripten/emcc.bat");
 								}
 							}
 
@@ -10899,7 +11198,7 @@ namespace IDE
 			}
 		}
 
-		static void QuoteIfNeeded(String str)
+		protected static void QuoteIfNeeded(String str)
 		{
 			if (!str.Contains(' '))
 				return;
@@ -11817,7 +12116,7 @@ namespace IDE
 
 			if ((compileKind == .RunAfter) || (compileKind == .DebugAfter))
 			{
-				if (workspaceOptions.mBuildKind == .Test)
+				if ((workspaceOptions.mBuildKind == .Test) && (platform != .Wasm))
 				{
 					OutputErrorLine("Cannot directly run Test workspace configurations. Use the 'Test' menu to run or debug tests.");
 					return false;
@@ -11858,7 +12157,7 @@ namespace IDE
 						});
 					((DarkButton)dlg.mButtons[0]).Label = "Open Link";
 					dlg.PopupWindow(GetActiveWindow());
-					MessageBeep(.Error);
+					Beep(.Error);
 #endif
 				}
 			}
@@ -12042,6 +12341,12 @@ namespace IDE
 
 			if (workingDir.IsEmpty)
 				Path.GetDirectoryPath(launchPath, workingDir).IgnoreError();
+
+			if (launchPath.EndsWith(".html"))
+			{
+				arguments.Set(scope $"\"{launchPath}\"");
+				launchPath.Set(scope $"{gApp.mInstallDir}/WasmLaunch.exe");
+			}
 
 			if (!Directory.Exists(workingDir))
 			{
@@ -12385,6 +12690,8 @@ namespace IDE
 
 			base.Init();
 			mSettings.Apply();
+
+			mGitManager.Init();
 
 			//Yoop();
 
@@ -12733,7 +13040,7 @@ namespace IDE
 				LoadConfig();
 		}
 
-		void LoadConfig()
+		protected void LoadConfig()
 		{
 			delete mBeefConfig;
 			mBeefConfig = new BeefConfig();
@@ -14518,7 +14825,7 @@ namespace IDE
 			}
 		}
 
-#if !CLI
+#if !CLI && BF_PLATFORM_WINDOWS
 		void UpdateIPC()
 		{
 			bool hasFocus = false;
@@ -14821,7 +15128,7 @@ namespace IDE
 				//BFApp_CheckMemory();
 			}
 
-#if !CLI
+#if !CLI && BF_PLATFORM_WINDOWS
 			if (mSettings.mEnableDevMode)
 				UpdateIPC();
 #endif
@@ -14853,6 +15160,8 @@ namespace IDE
 			if (mLongUpdateProfileId != 0)
 				DoLongUpdateCheck();
 
+			mGitManager.Update();
+			mPackMan.Update();
 			if (mWakaTime != null)
 				mWakaTime.Update();
 			if (mFindResultsPanel != null)
@@ -15041,7 +15350,6 @@ namespace IDE
 		[Import("user32.lib"), CLink, CallingConvention(.Stdcall)]
 		public static extern bool MessageBeep(MessageBeepType type);
 #endif
-
 	}
 
 	static

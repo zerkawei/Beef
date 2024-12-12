@@ -827,6 +827,12 @@ namespace System
 			return .(this, pos, length);
 		}
 
+		[NoDiscard]
+		public StringView Substring(IndexRange range)
+		{
+			return .(this)[range];
+		}
+		
 		public void Append(StringView strView)
 		{
 			Append(strView.Ptr, strView.Length);
@@ -2739,6 +2745,20 @@ namespace System
 			return UTF8Enumerator(Ptr, startIdx, mLength);
 		}
 
+		public bool HasMultibyteChars
+		{
+			get
+			{
+				char8* ptr = Ptr;
+				int len = Length;
+				for (int i < len)
+					if (ptr[i] >= '\x80')
+						return true;
+				return false;
+			}
+		}
+
+		[Obsolete("HasMultibyteChars() method has been replaced with the HasMultibyteChars property")]
 		public bool HasMultibyteChars()
 		{
 			char8* ptr = Ptr;
@@ -2779,7 +2799,7 @@ namespace System
 			return (c32, idx, len);
 		}
 
-		public (int startIdx, int length) GetCodePointSpan(int idx)
+		public (int startIdx, int8 length) GetCodePointSpan(int idx)
 		{
 			char8* ptr = Ptr;
 			int startIdx = idx;
@@ -3701,6 +3721,19 @@ namespace System
 			}
 		}
 
+		public bool HasMultibyteChars
+		{
+			get
+			{
+				char8* ptr = Ptr;
+				int len = Length;
+				for (int i < len)
+					if (ptr[i] >= '\x80')
+						return true;
+				return false;
+			}
+		}
+
 		public int GetHashCode()
 		{
 			return String.[Friend]GetHashCode(mPtr, mLength);
@@ -4139,7 +4172,13 @@ namespace System
 			return .(this, pos, length);
 		}
 
-		public (char32, int) GetChar32(int idx)
+		[NoDiscard]
+		public StringView Substring(IndexRange range)
+		{
+			return .(this)[range];
+		}
+
+		public (char32 c, int8 length) GetChar32(int idx)
 		{
 			Debug.Assert((uint)idx < (uint)mLength);
 			char8* ptr = Ptr;
@@ -4151,7 +4190,7 @@ namespace System
 			return UTF8.Decode(ptr + idx, mLength - idx);
 		}
 
-		public (char32, int, int) GetChar32WithBacktrack(int idx)
+		public (char32 c, int idx, int8 length) GetChar32WithBacktrack(int idx)
 		{
 			Debug.Assert((uint)idx < (uint)mLength);
 			char8* ptr = Ptr;

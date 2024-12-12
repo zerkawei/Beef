@@ -1674,6 +1674,15 @@ void BfPrinter::Visit(BfTupleTypeRef* typeRef)
 	VisitChild(typeRef->mCloseParen);
 }
 
+void BfPrinter::Visit(BfTagTypeRef* typeRef)
+{
+	Visit((BfAstNode*)typeRef);
+
+	VisitChild(typeRef->mTagNode);
+	ExpectSpace();
+	VisitChild(typeRef->mNameNode);
+}
+
 void BfPrinter::Visit(BfDelegateTypeRef* typeRef)
 {
 	Visit((BfAstNode*)typeRef);
@@ -1913,6 +1922,7 @@ void BfPrinter::Visit(BfObjectCreateExpression* newExpr)
 	ExpectSpace();
 
 	VisitChild(newExpr->mTypeRef);
+	VisitChild(newExpr->mCtorExplicit);
 
 	if (newExpr->mStarToken != NULL)
 	{
@@ -2497,6 +2507,7 @@ void BfPrinter::Visit(BfConstructorDeclaration* ctorDeclaration)
 	{
 		QueueVisitChild(ctorDeclaration->mThisToken);
 	}
+	QueueVisitChild(ctorDeclaration->mGenericParams);
 
 	QueueVisitChild(ctorDeclaration->mOpenParen);
 	for (int i = 0; i < (int) ctorDeclaration->mParams.size(); i++)
@@ -2513,6 +2524,8 @@ void BfPrinter::Visit(BfConstructorDeclaration* ctorDeclaration)
 	QueueVisitChild(ctorDeclaration->mInitializerColonToken);
 	ExpectSpace();
 	QueueVisitChild(ctorDeclaration->mInitializer);
+	ExpectSpace();
+	QueueVisitChild(ctorDeclaration->mGenericConstraintsDeclaration);
 
 	if (ctorDeclaration->mFatArrowToken != NULL)
 	{

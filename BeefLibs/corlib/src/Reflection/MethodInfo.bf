@@ -63,6 +63,9 @@ namespace System.Reflection
 		public StringView Name => Compiler.IsComptime ?
 			Type.[Friend]Comptime_Method_GetName(mData.mComptimeMethodInstance) :
 			mData.mMethodData.[Friend]mName;
+		public void* Ptr => Compiler.IsComptime ?
+			null :
+			mData.mMethodData.[Friend]mFuncPtr;
 
 		public int ParamCount => Compiler.IsComptime ?
 			Type.[Friend]Comptime_Method_GetInfo(mData.mComptimeMethodInstance).mParamCount :
@@ -610,7 +613,12 @@ namespace System.Reflection
 
 			List<FFIType*> ffiParamList = scope .(16);
 			List<void*> ffiArgList = scope .(16);
-			List<Variant> tempVariants = scope .(4);
+			List<Variant*> tempVariants = scope .(4);
+			defer
+			{
+				for (var variant in tempVariants)
+					variant.Dispose();
+			}
 
 			var target;
 
@@ -761,15 +769,17 @@ namespace System.Reflection
 
 					if (underlyingType == paramType)
 						handled = true;
-					
+
 					if (!handled)
 					{
 						if (!underlyingType.IsSubtypeOf(paramType))
 						{
 							if (Convert.ConvertTo(arg, paramType) case .Ok(var variant))
 							{
-								tempVariants.Add(variant);
-								dataPtr = variant.GetValueData();
+								var tempVariant = scope:mixin Variant();
+								*tempVariant = variant;
+								tempVariants.Add(tempVariant);
+								dataPtr = tempVariant.GetValueData();
 							}
 							else
 								isValid = false;

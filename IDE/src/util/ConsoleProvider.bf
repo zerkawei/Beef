@@ -490,6 +490,9 @@ class WinNativeConsoleProvider : ConsoleProvider
 		if (mScreenInfo == null)
 			return;
 
+		if (mScreenInfo.mScrollTop == row)
+			return;
+
 		GetFullScreenInfo(mScreenInfo);
 
 		mScreenInfo.mScrollTop = (.)row;
@@ -571,12 +574,18 @@ class WinNativeConsoleProvider : ConsoleProvider
 		if (processId > 0)
 			AttachConsole(processId);
 		else*/
-			AllocConsole();
+
+		AllocConsole();
 
 		var window = GetConsoleWindow();
 
-		if (mHideNativeConsole)
+		if ((mHideNativeConsole) && (window != default))
+		{
 			Windows.SetWindowPos(window, default, 0, 0, 0, 0, 0x290 /* SWP_NOACTIVATE | SWP_NOREPOSITION | SWP_HIDEWINDOW */);
+#if !BEEFCON
+			gApp.mMainWindow.SetForeground();
+#endif
+		}
 
 		//ResizeComponents();
 #endif
@@ -595,6 +604,8 @@ class WinNativeConsoleProvider : ConsoleProvider
 #if BF_PLATFORM_WINDOWS
 		FreeConsole();
 #endif
+
+		//gApp.mMainWindow.SetForeground();
 
 		mCmdSpawn?.Kill();
 		DeleteAndNullify!(mCmdSpawn);

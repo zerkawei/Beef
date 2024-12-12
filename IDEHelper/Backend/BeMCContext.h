@@ -166,11 +166,13 @@ struct BeCmpResult
 {
 	BeCmpKind mCmpKind;
 	int mResultVRegIdx;
+	bool mInverted;
 
 	BeCmpResult()
 	{
 		mCmpKind = BeCmpKind_None;
 		mResultVRegIdx = -1;
+		mInverted = false;
 	}
 };
 
@@ -916,9 +918,10 @@ enum BeMCInstForm
 	BeMCInstForm_R32,
 	BeMCInstForm_R64,
 
+	// FRM32 = float, FRM64 = double
 	BeMCInstForm_XMM32_IMM,
 	BeMCInstForm_XMM64_IMM,
-	BeMCInstForm_XMM32_FRM32,
+	BeMCInstForm_XMM32_FRM32, 
 	BeMCInstForm_XMM64_FRM32,
 	BeMCInstForm_XMM32_FRM64,
 	BeMCInstForm_XMM64_FRM64,
@@ -1430,6 +1433,7 @@ public:
 	X64CPURegister ResizeRegister(X64CPURegister reg, int numBits);
 	X64CPURegister ResizeRegister(X64CPURegister reg, BeType* type);
 	X64CPURegister GetFullRegister(X64CPURegister reg);
+	bool HasLoad(const BeMCOperand& operand);
 	bool IsAddress(BeMCOperand& operand);
 	bool IsAddressable(BeMCOperand& operand);
 	bool IsVRegExpr(BeMCOperand& operand);
@@ -1437,7 +1441,7 @@ public:
 	BeMCOperand GetFixedOperand(const BeMCOperand& operand);
 	uint8 GetREX(const BeMCOperand& op0, const BeMCOperand& op1, bool is64Bit);
 	void EmitREX(const BeMCOperand& op0, const BeMCOperand& op1, bool is64Bit);
-
+	
 	uint8 EncodeRegNum(X64CPURegister regNum);
 	int GetRegSize(int regNum);
 	void ValidateRMResult(const BeMCOperand& operand, BeRMParamsInfo& rmInfo, bool doValidate = true);

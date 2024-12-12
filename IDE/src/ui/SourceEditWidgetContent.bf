@@ -16,6 +16,7 @@ using Beefy.geom;
 using Beefy.events;
 using System.Security.Cryptography;
 using System.IO;
+using IDE.Util;
 
 namespace IDE.ui
 {    
@@ -784,8 +785,11 @@ namespace IDE.ui
                 0xFFFFFFFF, // Normal
                 0xFFE1AE9A, // Keyword
                 0XFFC8A0FF, // Literal
+				0xFF75715E, // Comment
                 0xFFFFFFFF, // Identifier
-                0xFF75715E, // Comment
+				0xFFFFFFFF, // Local
+				0xFFFFFFFF, // Parameter
+				0xFFFFFFFF, // Member
                 0xFFA6E22A, // Method
 				0xFF66D9EF, // Type
 				0xFF66D9EF, // PrimitiveType
@@ -2595,7 +2599,7 @@ namespace IDE.ui
 							while (checkIdx >= 0)
 							{
 								let displayType = (SourceElementType)mData.mText[checkIdx].mDisplayTypeId;
-								if (displayType == .Comment)
+								if ((displayType == .Comment) || (displayType == .Literal))
 								{
 									checkIdx--;
 									continue;
@@ -3867,7 +3871,8 @@ namespace IDE.ui
 				}
 				isEndingChar = false;
 			}
-            
+
+			bool forceAutoCompleteInsert = false;
 			if (isEndingChar)
             {
 				bool forceAsyncFinish = false;
@@ -3882,6 +3887,10 @@ namespace IDE.ui
 							// Could be a symbol autocomplete?
 							forceAsyncFinish = true;
 						}
+						else if (c == '.')
+						{
+							doAutocomplete = true;
+						}
 					}
 				}
 
@@ -3890,6 +3899,17 @@ namespace IDE.ui
 					if (mOnFinishAsyncAutocomplete != null)
 						mOnFinishAsyncAutocomplete();
 					doAutocomplete = true;
+				}
+
+				if ((mAutoComplete != null) && (!doAutocomplete) && (mAutoComplete.mInsertStartIdx == mAutoComplete.mInsertEndIdx) && (!keyChar.IsWhiteSpace))
+				{
+					// Handle tag insertion even if we have no text
+					var insertText = mAutoComplete.GetInsertText(.. scope .());
+					if (insertText.StartsWith('.'))
+					{
+						forceAutoCompleteInsert = true;
+						doAutocomplete = true;
+					}
 				}
             }
 			else
@@ -3903,11 +3923,11 @@ namespace IDE.ui
 				if ((mAutoComplete.mInsertEndIdx != -1) && (mAutoComplete.mInsertEndIdx != mCursorTextPos) && (keyChar != '\t') && (keyChar != '\r') && (keyChar != '\n'))
 					doAutocomplete = false;
 				
-                if ((mAutoComplete.IsInsertEmpty()) && (!mAutoComplete.mIsFixit) && (keyChar != '.') && (keyChar != '\t') && (keyChar != '\r'))
+                /*if ((mAutoComplete.IsInsertEmpty()) && (!mAutoComplete.mIsFixit) && (keyChar != '.') && (keyChar != '\t') && (keyChar != '\r'))
                 {
                     // Require a '.' or tab to insert autocomplete when we don't have any insert section (ie: after an 'enumVal = ')
                     doAutocomplete = false;
-                }
+                }*/
 
 				if ((keyChar == '[') && (mAutoComplete.mInsertStartIdx >= 0) && (mData.mText[mAutoComplete.mInsertStartIdx].mChar != '.'))
 				{
@@ -3927,7 +3947,7 @@ namespace IDE.ui
 				if (keyChar == '\x7F') /* Ctrl+Backspace */
 					doAutocomplete = false;
 
-                if (doAutocomplete)
+                if ((doAutocomplete) || (forceAutoCompleteInsert))
                 {
 					if (mOnFinishAsyncAutocomplete != null)
 						mOnFinishAsyncAutocomplete();
@@ -4070,10 +4090,16 @@ namespace IDE.ui
 						}
                         if (column > 0)
                         {
-							String tabStr = scope String();
-							tabStr.Append('\t', column / gApp.mSettings.mEditorSettings.mTabSize);
-							tabStr.Append(' ', column % gApp.mSettings.mEditorSettings.mTabSize);
-                            InsertAtCursor(tabStr);
+                            String indentationStr = scope String();
+                            switch (gApp.mSettings.mEditorSettings.mTabsOrSpaces)
+							{
+                            case .Spaces:
+                                indentationStr.Append(' ', column);
+                            case .Tabs:
+                                indentationStr.Append('\t', column / gApp.mSettings.mEditorSettings.mTabSize);
+                                indentationStr.Append(' ', column % gApp.mSettings.mEditorSettings.mTabSize);
+                            }
+                            InsertAtCursor(indentationStr);
 						}
 
 						// Insert extra blank line if we're breaking between a { and a }
@@ -4575,7 +4601,15 @@ namespace IDE.ui
 				{
 	                if ((mAutoComplete != null) && (mAutoComplete.IsShowing()))
 	                {
-	                    if (mAutoComplete.mAutoCompleteListWidget != null)
+						bool wantListCursors = false;
+
+						if (mAutoComplete.mAutoCompleteListWidget != null)
+						{
+							if (mAutoComplete.mAutoCompleteListWidget.mEntryList.Count > 1)
+								wantListCursors = true;
+						}
+
+	                    if (wantListCursors)
 	                    {
 	                        int32 pageSize = (int32)(mAutoComplete.mAutoCompleteListWidget.mScrollContentContainer.mHeight / mAutoComplete.mAutoCompleteListWidget.mItemSpacing - 0.5f);
 	                        int32 moveDir = 0;
@@ -4591,7 +4625,12 @@ namespace IDE.ui
 	                    }
 	                    else if (mAutoComplete.mInvokeWidget != null)
 	                    {
-	                        mAutoComplete.mInvokeWidget.SelectDirection(((keyCode == KeyCode.Up) || (keyCode == KeyCode.PageUp)) ? -1 : 1);
+							// Close the list if we had !wantListCursors
+	                        if (mAutoComplete.mInvokeWidget.SelectDirection(((keyCode == KeyCode.Up) || (keyCode == KeyCode.PageUp)) ? -1 : 1))
+							{
+								mAutoComplete?.CloseListWindow();
+								mAutoComplete?.Update();
+							}
 	                    }
 						return;
 	                }
@@ -5167,6 +5206,82 @@ namespace IDE.ui
 			base.MouseDown(x, y, btn, btnCount);
 		}
 
+		public void Undo(bool force)
+		{
+			if (!force)
+			{
+				String undoWarnFiles = scope .();
+
+				mData.mUndoManager.PreUndo(scope [&] (undoAction) =>
+					{
+						if (var globalUndoAction = undoAction as GlobalUndoAction)
+						{
+							bool panelFoundInAll = true;
+
+							for (var fileEditData in globalUndoAction.mUndoData.mFileEditDatas)
+							{
+								bool actionFound = false;
+								bool foundPanel = false;
+								var data = fileEditData.mEditWidget.mEditWidgetContent.mData;
+
+								for (var user in data.mUsers)
+								{
+									if (var sewc = user as SourceEditWidgetContent)
+									{
+										if (sewc.mSourceViewPanel != null)
+										{
+											foundPanel = true;
+										}
+									}
+									if (!foundPanel)
+										panelFoundInAll = false;
+								}
+
+								data.mUndoManager.PreUndo(scope [&] (subUndoAction) =>
+									{
+										if (var subGlobalUndoAction = subUndoAction as GlobalUndoAction)
+										{
+											if (subGlobalUndoAction.mUndoData == globalUndoAction.mUndoData)
+												actionFound = true;
+										}
+										
+									});
+
+								if (!actionFound)
+								{
+									if (!undoWarnFiles.IsEmpty)
+										undoWarnFiles.Append(", ");
+									undoWarnFiles.AppendF("'");
+									Path.GetFileName(fileEditData.mFilePath, undoWarnFiles);
+									undoWarnFiles.AppendF("'");
+								}
+							}
+						}
+					});
+
+				if (!undoWarnFiles.IsEmpty)
+				{
+					Dialog dialog = ThemeFactory.mDefault.CreateDialog("Undo/Redo Warning", scope $"You are attempting to undo a global operation which will revert subsequent changes in {undoWarnFiles}. Do you wish to proceed?", DarkTheme.sDarkTheme.mIconWarning);
+					dialog.mDefaultButton = dialog.AddButton("Yes", new (evt) =>
+						{
+							dialog.Close();
+							var svPanel = gApp.GetActiveSourceViewPanel();
+							if ((svPanel != null) && (svPanel.mEditWidget == mEditWidget))
+								Undo(true);
+						});
+					dialog.mEscButton = dialog.AddButton("No", new (evt) =>
+						{
+							//dialog.Close();
+						});
+					dialog.PopupWindow(gApp.GetActiveWindow());
+					return;
+				}
+			}
+
+
+			base.Undo();
+		}
+
         public override void Undo()
         {
 			var symbolReferenceHelper = IDEApp.sApp.mSymbolReferenceHelper;
@@ -5176,7 +5291,7 @@ namespace IDE.ui
                 return;
             }
 
-            base.Undo();            
+            Undo(false);
         }
 
         public override void Redo()
@@ -5666,7 +5781,7 @@ namespace IDE.ui
 				return;
 
 			mLineCoords.Clear();
-			mLineCoords.GrowUnitialized(data.mLineStarts.Count);
+			mLineCoords.GrowUninitialized(data.mLineStarts.Count);
 			mLineCoordJumpTable.Clear();
 
 			List<(int32 line, EmitEmbed emitEmbed)> orderedEmitEmbeds = scope .();

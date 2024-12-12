@@ -102,7 +102,8 @@ namespace IDE.ui
 			editWidgetContent.GetLineCharAtIdx(charIdx, out remappedLine, out remappedLineChar);
 
 			var filePath = lineSrcInfo.mEditData.mFilePath;
-			IDEApp.sApp.ShowSourceFileLocation(filePath, -1, -1/*IDEApp.sApp.mWorkspace.GetHighestCompileIdx()*/, remappedLine, remappedLineChar, LocatorType.Always);
+			var panel = IDEApp.sApp.ShowSourceFileLocation(filePath, -1, -1/*IDEApp.sApp.mWorkspace.GetHighestCompileIdx()*/, remappedLine, remappedLineChar, LocatorType.Always);
+			panel?.RecordHistoryLocation();
 			return true;
 		}
 
@@ -219,6 +220,8 @@ namespace IDE.ui
 
 		                if (lineMatched)
 		                {
+							line.Trim();
+
 		                    linesMatched++;
 		                    hadMatch = true;
 							if (mSearchOptions.mReplaceString != null)
@@ -590,7 +593,7 @@ namespace IDE.ui
 			mLineSrcInfo[mCurLineNum] = lineSrcInfo;
 
 			String outStr = scope String();
-			outStr.AppendF("{0}({1}):{2}", fileEditData.mFilePath, line + 1, lineStr);
+			outStr.AppendF("{0}({1}): {2}", fileEditData.mFilePath, line + 1, lineStr);
 			gApp.mFindResultsPanel.AddPendingLine(outStr);
 		}
 

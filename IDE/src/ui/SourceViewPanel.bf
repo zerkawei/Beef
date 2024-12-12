@@ -26,8 +26,11 @@ namespace IDE.ui
         Normal,
         Keyword,
         Literal,
+		Comment,
         Identifier,
-        Comment,
+		Local,
+		Parameter,
+		Member,
         Method,
 		Type,
 		PrimitiveType,
@@ -432,7 +435,7 @@ namespace IDE.ui
 		public bool mLoadFailed;
 		String mOldVerLoadCmd ~ delete _;
 		HTTPRequest mOldVerHTTPRequest ~ delete _;
-		IDEApp.ExecutionInstance mOldVerLoadExecutionInstance ~ { if (_ != null) _.mAutoDelete = true; };
+		IDEApp.ExecutionInstance mOldVerLoadExecutionInstance ~ _?.Release();
 		SourceFindTask mSourceFindTask ~ delete _;
 		HoverResolveTask mHoverResolveTask ~ delete _;
 		bool mWantsFastClassify;
@@ -1932,7 +1935,7 @@ namespace IDE.ui
 			}
 			else if (resolveType == ResolveType.GetCurrentLocation)
 			{
-				PrimaryNavigationBar.SetLocation(autocompleteInfo);
+				PrimaryNavigationBar.SetLocation(autocompleteInfo ?? "");
 			}
 			else if ((resolveType == .Autocomplete) || (resolveType == .GetFixits))
 			{
@@ -4563,7 +4566,7 @@ namespace IDE.ui
 					{
 						mCollapseRegionView.mLineStart = (.)lineStart;
 						mCollapseRegionView.mCollapseIndices.Clear();
-						Internal.MemSet(mCollapseRegionView.mCollapseIndices.GrowUnitialized(drawLineCount), 0, drawLineCount * sizeof(int32));
+						Internal.MemSet(mCollapseRegionView.mCollapseIndices.GrowUninitialized(drawLineCount), 0, drawLineCount * sizeof(int32));
 						mCollapseRegionView.mCollapseRevision = ewc.mCollapseParseRevision;
 						mCollapseRegionView.mTextVersionId = ewc.mCollapseTextVersionId;
 
@@ -4678,10 +4681,12 @@ namespace IDE.ui
 									continue;
 								if (ewc.IsLineCollapsed(drawLineNum))
 									continue;
-								//hadLineIcon[drawLineNum - lineStart] = true;
+
+								float iconX = Math.Max(GS!(-5), mEditWidget.mX - GS!(30) - sDrawLeftAdjust);
+								float iconY = 0 + ewc.mLineCoords[drawLineNum] + (lineSpacing - DarkTheme.sUnitSize + GS!(5)) / 2;
+
 								Image image = DarkTheme.sDarkTheme.GetImage(bookmark.mIsDisabled ? .IconBookmarkDisabled : .IconBookmark);
-                                g.Draw(image, Math.Max(GS!(-5), mEditWidget.mX - GS!(30) - sDrawLeftAdjust),
-									0 + bookmark.mLineNum * lineSpacing);
+                                g.Draw(image, iconX, iconY);
 
 								var curLineFlags = ref lineFlags[drawLineNum - lineStart];
 								curLineFlags |= .Boomkmark;

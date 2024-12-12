@@ -10,12 +10,22 @@ namespace BeefBuild
 {
 	class BuildApp : IDEApp
 	{
+		public enum MainVerbState
+		{
+			None,
+			UpdateList,
+			End
+		}
+
 		const int cProgressSize = 30;
 		int mProgressIdx = 0;		
 		public bool mIsTest;
 		public bool mTestIncludeIgnored;
 		public bool mDidRun;
 		public bool mWantsGenerate = false;
+		public bool mHandledVerb;
+		public String mRunArgs ~ delete _;
+		MainVerbState mMainVerbState;
 
 		/*void Test()
 		{
@@ -82,6 +92,14 @@ namespace BeefBuild
 				mWantsClean = false;
 			}
 
+			if (mVerb == .CleanCache)
+			{
+				LoadConfig();
+				mPackMan.CleanCache();
+				Stop();
+				return;
+			}
+
 			if (mWorkspace.mDir == null)
 			{
 				mWorkspace.mDir = new String();
@@ -112,20 +130,33 @@ namespace BeefBuild
 						OutputErrorLine("The project '{}' is not empty, but '-generate' was specified.", mWorkspace.mStartupProject.mProjectName);
 				}
 			}
-
-			if (!mFailed)
-			{
-				if (mIsTest)
-				{
-					RunTests(mTestIncludeIgnored, false);
-				}
-				else if (mVerb != .New)
-					Compile(.Normal, null);
-			}
 		}
 
 		public override bool HandleCommandLineParam(String key, String value)
 		{
+			if (mRunArgs != null)
+			{
+				if (!mRunArgs.IsEmpty)
+					mRunArgs.Append(" ");
+				if (value != null)
+				{
+					String qKey = scope .(key);
+					String qValue = scope .(value);
+					IDEApp.QuoteIfNeeded(qKey);
+					IDEApp.QuoteIfNeeded(qValue);
+					mRunArgs.Append(qKey);
+					mRunArgs.Append('=');
+					mRunArgs.Append(qValue);
+				}
+				else
+				{
+					String qKey = scope .(key);
+					IDEApp.QuoteIfNeeded(qKey);
+					mRunArgs.Append(qKey);
+				}
+				return true;
+			}
+
 			if (key.StartsWith("--"))
 				key.Remove(0, 1);
 
@@ -133,6 +164,10 @@ namespace BeefBuild
 			{
 				switch (key)
 				{
+				case "-args":
+					if (mRunArgs == null)
+						mRunArgs = new .();
+					return true;
 				case "-new":
 					mVerb = .New;
 					return true;
@@ -157,11 +192,68 @@ namespace BeefBuild
 				case "-noir":
 					mConfig_NoIR = true;
 					return true;
+				case "-update":
+					if (mWantUpdateVersionLocks == null)
+						mWantUpdateVersionLocks = new .();
+					return true;
 				case "-version":
 					mVerb = .GetVersion;
 					return true;
 				case "-crash":
 					Runtime.FatalError("-crash specified on command line");
+				case "-cleancache":
+					if (mPackMan.mCleanHashSet.TryAddAlt("*", var entryPtr))
+						*entryPtr = new .("*");
+					return true;
+				}
+
+				if (!key.StartsWith('-'))
+				{
+					switch (mMainVerbState)
+					{
+					case .None:
+						mMainVerbState = .End;
+						switch (key)
+						{
+						case "build":
+							mVerb = .None;
+						case "new":
+							mVerb = .New;
+						case "cleancache":
+							mVerb = .CleanCache;
+						case "generate":
+							mWantsGenerate = true;
+						case "run":
+							if (mVerbosity == .Default)
+								mVerbosity = .Minimal;
+							mVerb = .Run;
+						case "test":
+							mIsTest = true;
+						case "testall":
+							mIsTest = true;
+							mTestIncludeIgnored = true;
+						case "clean":
+							mWantsClean = true;
+						case "version":
+							mVerb = .GetVersion;
+						case "crash":
+							Runtime.FatalError("-crash specified on command line");
+						case "update":
+							mVerb = .Update;
+							mWantUpdateVersionLocks = new .();
+							mMainVerbState = .UpdateList;
+						default:
+							mMainVerbState = .None;
+						}
+						if (mMainVerbState != .None)
+							return true;
+					case .UpdateList:
+						mWantUpdateVersionLocks.Add(new .(key));
+						return true;
+					case .End:
+						return false;
+					default:
+					}
 				}
 			}
 			else
@@ -188,6 +280,11 @@ namespace BeefBuild
 				case "-platform":
 					mPlatformName.Set(value);
 					return true;
+				case "-update":
+					if (mWantUpdateVersionLocks == null)
+						mWantUpdateVersionLocks = new .();
+					mWantUpdateVersionLocks.Add(new .(value));
+					return true;
 				case "-verbosity":
 				    if (value == "quiet")
 					    mVerbosity = .Quiet;
@@ -201,6 +298,10 @@ namespace BeefBuild
 					    mVerbosity = .Diagnostic;
 					else
 						Fail(scope String()..AppendF("Invalid verbosity option: {}", value));
+					return true;
+				case "-cleancache":
+					if (mPackMan.mCleanHashSet.TryAddAlt(value, var entryPtr))
+						*entryPtr = new .(value);
 					return true;
 				}
 			}
@@ -281,33 +382,56 @@ namespace BeefBuild
 		{
 			base.Update(batchStart);
 
-			if (mCompilingBeef)
+			if ((mWorkspace.mProjectLoadState != .None) && (mWorkspace.mProjectLoadState != .Loaded))
 			{
-				WriteProgress(mBfBuildCompiler.GetCompletionPercentage());
+				// Wait for workspace to complete loading
 			}
-
-			if ((!IsCompiling) && (!AreTestsRunning()))
+			else
 			{
-				if ((mVerb == .Run) && (!mDidRun) && (!mFailed))
+				if ((!mFailed) && (!mHandledVerb))
 				{
-					let curPath = scope String();
-					Directory.GetCurrentDirectory(curPath);
-
-					let workspaceOptions = gApp.GetCurWorkspaceOptions();
-					let options = gApp.GetCurProjectOptions(mWorkspace.mStartupProject);
-					let targetPaths = scope List<String>();
-					defer ClearAndDeleteItems(targetPaths);
-					this.[Friend]GetTargetPaths(mWorkspace.mStartupProject, gApp.mPlatformName, workspaceOptions, options, targetPaths);
-					if (targetPaths.IsEmpty)
-						return;
-
-					ExecutionQueueCmd executionCmd = QueueRun(targetPaths[0], "", curPath);
-					executionCmd.mIsTargetRun = true;
-					mDidRun = true;
-					return;
+					mHandledVerb = true;
+					if (mIsTest)
+					{
+						RunTests(mTestIncludeIgnored, false);
+					}
+					else if (mVerb == .Update)
+					{
+						// No-op here
+					}
+					else if (mVerb != .New)
+						Compile(.Normal, null);
 				}
 
-				Stop();
+				if (mCompilingBeef)
+				{
+					WriteProgress(mBfBuildCompiler.GetCompletionPercentage());
+				}
+
+				if ((!IsCompiling) && (!AreTestsRunning()))
+				{
+					if ((mVerb == .Run) && (!mDidRun) && (!mFailed))
+					{
+						let curPath = scope String();
+						Directory.GetCurrentDirectory(curPath);
+
+						let workspaceOptions = gApp.GetCurWorkspaceOptions();
+						let options = gApp.GetCurProjectOptions(mWorkspace.mStartupProject);
+						let targetPaths = scope List<String>();
+						defer ClearAndDeleteItems(targetPaths);
+						this.[Friend]GetTargetPaths(mWorkspace.mStartupProject, gApp.mPlatformName, workspaceOptions, options, targetPaths);
+						if (targetPaths.IsEmpty)
+							return;
+
+						ExecutionQueueCmd executionCmd = QueueRun(targetPaths[0], mRunArgs ?? "", curPath);
+						executionCmd.mRunFlags |= .NoRedirect;
+						executionCmd.mIsTargetRun = true;
+						mDidRun = true;
+						return;
+					}
+
+					Stop();
+				}
 			}
 		}
 	}

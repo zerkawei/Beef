@@ -2,7 +2,7 @@ using System.Collections;
 
 namespace System
 {
-	class BumpAllocator : IRawAllocator
+	class BumpAllocator : ITypedAllocator
 	{
 		struct DtorEntry
 		{
@@ -258,6 +258,18 @@ namespace System
 					}
 				}
 			}
+		}
+#else
+		public void* AllocTyped(Type type, int size, int align)
+		{
+			if ((DestructorHandling != .Ignore) && (type.HasDestructor))
+			{
+				if (DestructorHandling == .Fail)
+					Runtime.FatalError("Destructor not allowed");
+				return AllocWithDtor(size, align);
+			}
+	
+			return Alloc(size, align);
 		}
 #endif
 
