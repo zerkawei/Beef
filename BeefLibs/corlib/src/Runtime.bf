@@ -14,7 +14,6 @@ namespace System
 		public bool AVX, AVX2, AVX512;
 	}
 
-	[StaticInitPriority(101)]
 	static class Runtime
 	{
 		const int32 cVersion = 10;
@@ -111,7 +110,7 @@ namespace System
 			function void* (int size) mAlloc;
 			function void (void* ptr) mFree;
 			function void (Object obj) mObject_Delete;
-			void* mUnused0;
+			function void* (ClassVData* vdataPtr) mClassVData_GetTypeData;
 			function Type (Object obj) mObject_GetType;
 			function void (Object obj) mObject_GCMarkMembers;
 			function Object (Object obj, int32 typeId) mObject_DynamicCastToTypeId;
@@ -150,6 +149,20 @@ namespace System
 			static void Object_Delete(Object obj)
 			{
 				delete obj;
+			}
+
+			static void* ClassVData_GetTypeData(ClassVData* classVData)
+			{
+#if BF_DBG_RUNTIME
+#if BF_32_BIT
+				Type type = Type.[Friend]GetType_(classVData.mType2);
+#else
+				Type type = Type.[Friend]GetType_((.)(classVData.mType >> 32));
+#endif
+				return &type.[Friend]mSize;
+#else
+				return null;
+#endif
 			}
 
 			static Type Object_GetType(Object obj)
@@ -259,6 +272,7 @@ namespace System
 				mAlloc = => Alloc;
 				mFree = => Free;
 				mObject_Delete = => Object_Delete;
+				mClassVData_GetTypeData = => ClassVData_GetTypeData;
 				mObject_GetType = => Object_GetType;
 				mObject_GCMarkMembers = => Object_GCMarkMembers;
 			    mObject_DynamicCastToTypeId = => Object_DynamicCastToTypeId;
@@ -273,7 +287,7 @@ namespace System
 				mDebugMessageData_SetupProfilerCmd = => DebugMessageData_SetupProfilerCmd;
 				mDebugMessageData_Fatal = => DebugMessageData_Fatal;
 				mDebugMessageData_Clear = => DebugMessageData_Clear;
-				mCheckErrorHandler = => CheckErrorHandler;
+				mCheckErrorHandler = => CheckErrorHandler_Thunk;
 			}
 		};
 
@@ -378,13 +392,23 @@ namespace System
 			public static bool sInsideErrorHandler;
 		}
 
+
+		[AlwaysInclude, StaticInitPriority(201)]
+		static struct RuntimeInit
+		{
+			public static this()
+			{
+				Runtime.Init();
+			}
+		}
+
 		static RtFlags sExtraFlags;
 		static bool sQueriedFeatures = false;
 		static RuntimeFeatures sFeatures;
 
 		static function void() sThreadInit;
 
-		public static this()
+		static void Init()
 		{
 #if !BF_RUNTIME_DISABLE
 			BfRtCallbacks.sCallbacks.Init();
@@ -411,6 +435,11 @@ namespace System
 #endif
 		}
 
+		public static this()
+		{
+			
+		}
+
 		[NoReturn]
 		public static void FatalError(String msg = "Fatal error encountered", String filePath = Compiler.CallerFilePath, int line = Compiler.CallerLineNum)
 		{
@@ -420,7 +449,7 @@ namespace System
 			failStr.Append(" in ", filePath);
 			Internal.FatalError(failStr, 1);
 #else
-			Internal.FatalError("Fatal error", 1);
+			Internal.FatalError(msg, 1);
 #endif
 		}
 
@@ -445,7 +474,7 @@ namespace System
 				failStr.Append(" in ", filePath);
 				Internal.FatalError(failStr, 1);
 #else
-				Internal.FatalError("Assert failed", 1);
+				Internal.FatalError(error, 1);
 #endif
 			}
 		}
@@ -484,6 +513,14 @@ namespace System
 
 		public static function ErrorHandlerResult(AssertError.Kind kind, String error, String filePath, int lineNum) CheckAssertError;
 		public static function int32(char8* kind, char8* arg1, char8* arg2, int arg3) CheckErrorHandler;
+		public static function void*(char8* filePath) LibraryLoadCallback;
+
+		public static int32 CheckErrorHandler_Thunk(char8* kind, char8* arg1, char8* arg2, int arg3)
+		{
+			if (CheckErrorHandler != null)
+				return CheckErrorHandler(kind, arg1, arg2, arg3);
+			return 0;
+		}
 
 		static ErrorHandlerResult CheckAssertError_Impl(AssertError.Kind kind, String error, String filePath, int lineNum)
 		{
@@ -638,7 +675,7 @@ namespace System
 	}
 }
 
-#if BF_RUNTIME_DISABLE
+#if BF_RUNTIME_DISABLE && !BF_CRT_DISABLE
 namespace System
 {
 	[AlwaysInclude, StaticInitPriority(1000)]
@@ -734,8 +771,8 @@ namespace System
 			return 0;
 		}
 
-		[LinkName(.C), AlwaysInclude]
-		static extern void WinMain(void* module, void* prevModule, char8* args, int32 showCmd);
+		/*[LinkName(.C), AlwaysInclude]
+		static extern void WinMain(void* module, void* prevModule, char8* args, int32 showCmd);*/
 
 		[LinkName(.C), AlwaysInclude]
 		static extern int32 main(int argc, char8** argv);

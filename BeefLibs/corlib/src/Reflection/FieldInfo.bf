@@ -37,6 +37,9 @@ namespace System.Reflection
 		public int32 FieldIdx => Compiler.IsComptime ?
 			mFieldData.mCustomAttributesIdx :
 			-1;
+		public StringView Documentation => Compiler.IsComptime ?
+			Type.[Friend]Comptime_Field_GetDocumentation((.)mTypeInstance.TypeId, FieldIdx) :
+			null;
 
 		public void GetSourceName(String outStr)
 		{
@@ -454,6 +457,38 @@ namespace System.Reflection
 			return value;
 		}
 
+		public Result<T*> GetValueReference<T>(void* startTargetDataAddr, Type tTarget)
+		{
+			void* targetDataAddr = startTargetDataAddr;
+			if (targetDataAddr == null)
+			{
+				if (mFieldData.mFlags.HasFlag(FieldFlags.Const))
+				{
+					return (T*)&mFieldData.mData;
+				}
+
+				if (!mFieldData.mFlags.HasFlag(FieldFlags.Static))
+					return .Err;
+
+				targetDataAddr = null;
+			}
+			else
+			{
+				if (!tTarget.IsSubtypeOf(mTypeInstance))
+				    return .Err; //Invalid type;
+			}
+
+			targetDataAddr = (uint8*)targetDataAddr + (int)mFieldData.mData;
+
+			Type fieldType = Type.[Friend]GetType(mFieldData.mFieldTypeId);
+
+			TypeCode typeCode = fieldType.[Friend]mTypeCode;
+			if (typeCode == TypeCode.Enum)
+				typeCode = fieldType.UnderlyingType.[Friend]mTypeCode;
+
+			return (T*)targetDataAddr;
+		}
+
 		public Result<Variant> GetValue(Object target)
 		{
 			void* targetDataAddr;
@@ -498,6 +533,44 @@ namespace System.Reflection
 			}
 		}
 
+		Result<T*> DoGetValueReference<T>(Object target)
+		{
+			void* targetDataAddr;
+			if (target == null)
+			{
+				if (mFieldData.mFlags.HasFlag(FieldFlags.Const))
+				{
+					return (T*)&mFieldData.mData;
+				}
+
+				if (!mFieldData.mFlags.HasFlag(FieldFlags.Static))
+					return .Err;
+
+				return GetValueReference<T>(null, null);
+			}
+			else
+			{
+				Type tTarget;
+				targetDataAddr = GetDataPtrAndType(target, out tTarget);
+				return GetValueReference<T>(targetDataAddr, tTarget);
+			}
+		}
+
+		public Result<T*> GetValueReference<T>(Object target)
+		{
+			if (FieldType != typeof(T))
+				return .Err;
+			return DoGetValueReference<T>(target);
+		}
+
+		public Result<T> GetValue<T>(Object target)
+		{
+			if ((FieldType != typeof(T)) && (!FieldType.IsSubtypeOf(typeof(T))))
+				return .Err;
+			T* result = Try!(DoGetValueReference<T>(target));
+			return *result;
+		}
+
 		public Result<Variant> GetValueReference(Object target)
 		{
 			void* targetDataAddr;
@@ -539,6 +612,30 @@ namespace System.Reflection
 			{
 				var target;
 				return GetValueReference(target.DataPtr, target.VariantType);
+			}
+		}
+
+		public Result<T*> GetValueReference<T>(Variant target)
+		{
+			if (FieldType != typeof(T))
+				return .Err;
+
+			if (!target.HasValue)
+			{
+				if (mFieldData.mFlags.HasFlag(FieldFlags.Const))
+				{
+					return (T*)&mFieldData.mData;
+				}
+
+				if (!mFieldData.mFlags.HasFlag(FieldFlags.Static))
+					return .Err;
+
+				return GetValueReference<T>(null, null);
+			}
+			else
+			{
+				var target;
+				return GetValueReference<T>(target.DataPtr, target.VariantType);
 			}
 		}
 

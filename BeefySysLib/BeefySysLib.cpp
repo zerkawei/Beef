@@ -10,6 +10,8 @@
 #include "util/Vector.h"
 #include "util/PerfTimer.h"
 #include "util/TLSingleton.h"
+#include "util/MemLogger.h"
+#include "img/ImgEffects.h"
 
 #include "util/AllocDebug.h"
 
@@ -445,10 +447,11 @@ BF_EXPORT int BF_CALLTYPE BFWindow_GetDPI(BFWindow* window)
 
 BF_EXPORT TextureSegment* BF_CALLTYPE Gfx_CreateRenderTarget(int width, int height, int destAlpha)
 {
-	Texture* texture = gBFApp->mRenderDevice->CreateRenderTarget(width, height, destAlpha != 0);
+	Texture* texture = gBFApp->mRenderDevice->CreateRenderTarget(width, height, destAlpha != 0);	
+	texture->mResetClear = true;
 
 	TextureSegment* aTextureSegment = new TextureSegment();
-	aTextureSegment->InitFromTexture(texture);
+	aTextureSegment->InitFromTexture(texture);	
 	return aTextureSegment;
 }
 
@@ -474,12 +477,12 @@ BF_EXPORT TextureSegment* BF_CALLTYPE Gfx_LoadTexture(const char* fileName, int 
 
 BF_EXPORT void BF_CALLTYPE Gfx_Texture_SetBits(TextureSegment* textureSegment, int destX, int destY, int destWidth, int destHeight, int srcPitch, uint32* bits)
 {
-	textureSegment->mTexture->SetBits(destX, destY, destWidth, destHeight, srcPitch, bits);
+	textureSegment->SetBits(destX, destY, destWidth, destHeight, srcPitch, bits);
 }
 
 BF_EXPORT void BF_CALLTYPE Gfx_Texture_GetBits(TextureSegment* textureSegment, int srcX, int srcY, int srcWidth, int srcHeight, int destPitch, uint32* bits)
 {
-	textureSegment->mTexture->GetBits(srcX, srcY, srcWidth, srcHeight, destPitch, bits);
+	textureSegment->GetBits(srcX, srcY, srcWidth, srcHeight, destPitch, bits);
 }
 
 BF_EXPORT void BF_CALLTYPE Gfx_Texture_Delete(TextureSegment* textureSegment)
@@ -514,6 +517,93 @@ BF_EXPORT void BF_CALLTYPE Gfx_ModifyTextureSegment(TextureSegment* destTextureS
 	destTextureSegment->mV2 = ((srcY + srcHeight) / (float) texture->mHeight) + srcTextureSegment->mV1;
 	destTextureSegment->mScaleX = (float)abs(srcWidth);
 	destTextureSegment->mScaleY = (float)abs(srcHeight);
+}
+
+int32 FormatI32(const StringView& str)
+{
+	String val = String(str);
+	if (val.StartsWith('#'))
+	{		
+		return (int32)strtoll(val.c_str() + 1, NULL, 16);
+	}
+	if (val.StartsWith("0x"))
+	{
+		return (int32)strtoll(val.c_str() + 2, NULL, 16);
+	}
+	return atoi(val.c_str());
+}
+
+BF_EXPORT void BF_CALLTYPE Gfx_ApplyEffect(TextureSegment* destTextureSegment, TextureSegment* srcTextureSegment, char* optionsPtr)
+{
+	BaseImageEffect* effect = NULL;
+	defer({
+		delete effect;
+		});
+
+	bool needsPremultiply = false;
+
+	String options = optionsPtr;
+	for (auto line : options.Split('\n'))
+	{
+		int eqPos = (int)line.IndexOf('=');
+		if (eqPos != -1)
+		{
+			StringView cmd = StringView(line, 0, eqPos);	
+			StringView value = StringView(line, eqPos + 1);
+
+			if (cmd == "Effect")
+			{
+				if (value == "Stroke")
+				{
+					auto strokeEffect = new ImageStrokeEffect();
+					effect = strokeEffect;
+					strokeEffect->mPosition = 'OutF';
+					strokeEffect->mSize = 1;
+					strokeEffect->mColorFill.mColor = 0xFF000000;
+				}				
+			}
+			if (cmd == "Size")
+			{
+				int32 size = FormatI32(value);
+				if (auto strokeEffect = dynamic_cast<ImageStrokeEffect*>(effect))
+				{
+					strokeEffect->mSize = size;
+				}
+			}
+			if (cmd == "Color")
+			{
+				uint32 color = (uint32)FormatI32(value);
+				if (auto strokeEffect = dynamic_cast<ImageStrokeEffect*>(effect))
+				{
+					strokeEffect->mColorFill.mColor = color;
+					if ((color & 0x00FFFFFF) != 0)
+						needsPremultiply = true;
+				}
+			}
+		}
+	}
+
+	if (effect != NULL)
+	{
+		ImageData destImageData;
+		ImageData srcImageData;
+
+		RectF srcRect = srcTextureSegment->GetRect();
+		RectF destRect = destTextureSegment->GetRect();
+
+		destTextureSegment->GetImageData(destImageData);
+		srcImageData.CreateNew(destImageData.mWidth, destImageData.mHeight);
+
+		srcTextureSegment->GetImageData(srcImageData, 
+			(int)(destRect.width - srcRect.width) / 2,
+			(int)(destRect.height - srcRect.height) / 2);
+		
+		effect->Apply(NULL, &srcImageData, &destImageData);
+		if (needsPremultiply)
+			destImageData.PremultiplyAlpha();
+		
+		destTextureSegment->SetImageData(destImageData);
+	}
 }
 
 BF_EXPORT TextureSegment* BF_CALLTYPE Gfx_CreateTextureSegment(TextureSegment* textureSegment, int srcX, int srcY, int srcWidth, int srcHeight)
@@ -742,10 +832,10 @@ BF_EXPORT void BF_CALLTYPE RenderState_SetWireframe(RenderState* renderState, bo
 BF_EXPORT void BF_CALLTYPE RenderState_SetClip(RenderState* renderState, float x, float y, float width, float height)
 {
 	BF_ASSERT((width >= 0) && (height >= 0));
-	renderState->mClipRect.mX = x;
-	renderState->mClipRect.mY = y;
-	renderState->mClipRect.mWidth = width;
-	renderState->mClipRect.mHeight = height;
+	renderState->mClipRect.x = x;
+	renderState->mClipRect.y = y;
+	renderState->mClipRect.width = width;
+	renderState->mClipRect.height = height;
 	if (!renderState->mClipped)
 		renderState->SetClipped(true);
 }
@@ -837,4 +927,36 @@ BF_EXPORT void BF_CALLTYPE BF_Test()
 
 	for (int i : iArr)
 		OutputDebugStrF("Hey %d\n", i);
+}
+
+BF_EXPORT void* BF_CALLTYPE MemLogger_Create(const char* memName, int size)
+{
+	MemLogger* memLogger = new MemLogger();
+	if (!memLogger->Create(memName, size))
+	{
+		delete memLogger;
+		return NULL;
+	}
+	return memLogger;
+}
+
+BF_EXPORT void BF_CALLTYPE MemLogger_Write(MemLogger* memLogger, void* ptr, int size)
+{
+	memLogger->Write(ptr, size);
+}
+
+BF_EXPORT void BF_CALLTYPE MemLogger_Delete(MemLogger* memLogger)
+{
+	delete memLogger;
+}
+
+BF_EXPORT const char* BF_CALLTYPE MemLogger_Get(const char* memName)
+{
+	MemLogger memLogger;
+
+	String& outString = *gBeefySys_TLStrReturn.Get();
+	outString.Clear();
+	if (!memLogger.Get(memName, outString))
+		return NULL;
+	return outString.c_str();
 }

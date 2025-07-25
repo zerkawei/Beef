@@ -229,6 +229,7 @@ enum BfToken : uint8
 	BfToken_NameOf,
 	BfToken_Namespace,
 	BfToken_New,
+	BfToken_Not,
 	BfToken_Null,
 	BfToken_Nullable,
 	BfToken_OffsetOf,
@@ -246,8 +247,7 @@ enum BfToken : uint8
 	BfToken_Return,
 	BfToken_Scope,
 	BfToken_Sealed,
-	BfToken_SizeOf,
-	BfToken_Stack,
+	BfToken_SizeOf,	
 	BfToken_Static,
 	BfToken_StrideOf,
 	BfToken_Struct,
@@ -304,6 +304,7 @@ enum BfToken : uint8
 	BfToken_RDblChevron,
 	BfToken_Semicolon,
 	BfToken_Colon,
+	BfToken_ColonColon,
 	BfToken_Comma,
 	BfToken_Dot,
 	BfToken_DotDot,
@@ -359,6 +360,7 @@ class BfAttributedIdentifierNode;
 class BfQualifiedNameNode;
 class BfNamespaceDeclaration;
 class BfTypeDeclaration;
+class BfInitializerTypeDeclaration;
 class BfTypeAliasDeclaration;
 class BfMethodDeclaration;
 class BfOperatorDeclaration;
@@ -382,6 +384,7 @@ class BfReturnStatement;
 class BfYieldStatement;
 class BfUnaryOperatorExpression;
 class BfBinaryOperatorExpression;
+class BfInlineTypeReference;
 class BfArrayTypeRef;
 class BfPointerTypeRef;
 class BfDotTypeReference;
@@ -550,6 +553,7 @@ public:
 	virtual void Visit(BfInitializerExpression* collectionInitExpr);
 	virtual void Visit(BfCollectionInitializerExpression* collectionInitExpr);
 	virtual void Visit(BfTypeReference* typeRef);
+	virtual void Visit(BfInlineTypeReference* typeRef);
 	virtual void Visit(BfNamedTypeReference* typeRef);
 	virtual void Visit(BfQualifiedTypeReference* qualifiedType);
 	virtual void Visit(BfDotTypeReference* typeRef);
@@ -844,7 +848,7 @@ public:
 		return (mKind == BfTypedValueKind_NoValue) && (mType != NULL);
 	}
 
-	bool IsParams()
+	bool IsParams() const
 	{
 		return (mKind == BfTypedValueKind_ParamsSplat) || (mKind == BfTypedValueKind_Params);
 	}
@@ -1808,6 +1812,7 @@ public:
 	ASTREF(BfTokenNode*) mCloseBrace;
 	//BfDebugArray<BfAstNode*> mChildArr;
 	BfSizedArray<ASTREF(BfAstNode*)> mChildArr;
+	int mParserBlockId;
 
 public:
 	using BfAstNode::Init;
@@ -2010,6 +2015,13 @@ public:
 	BfTokenNode* mColonToken;
 	BfAstNode* mTargetNode; // . : or identifier
 	BfAttributeDirective* mAttributes;
+
+	BfAstNode* GetTargetNode()
+	{
+		if ((mColonToken != NULL) && (mColonToken->mToken == BfToken_ColonColon))
+			return mColonToken;
+		return mTargetNode;
+	}
 };	BF_AST_DECL(BfScopeNode, BfAstNode);
 
 class BfNewNode : public BfAstNode
@@ -2104,6 +2116,12 @@ public:
 	ASTREF(BfIdentifierNode*) mLeft;
 	ASTREF(BfTokenNode*) mDot;
 	ASTREF(BfIdentifierNode*) mRight;
+
+	bool IsGlobalLookup()
+	{
+		return (mDot != NULL) && (mDot->mToken == BfToken_ColonColon);
+	}
+
 };	BF_AST_DECL(BfQualifiedNameNode, BfIdentifierNode);
 
 class BfUsingDirective : public BfStatement
@@ -2148,6 +2166,7 @@ public:
 	ASTREF(BfTokenNode*) mCtorCloseParen;
 	BfSizedArray<ASTREF(BfExpression*)> mArguments;
 	BfSizedArray<ASTREF(BfTokenNode*)> mCommas;
+	bool mIsMultiUse; // For anonymous types and also another use like a field decl
 
 	ASTREF(BfAttributeDirective*) mNextAttribute;
 
@@ -2280,6 +2299,7 @@ public:
 
 	BfAstNode* mTarget;
 	BfTokenNode* mOpenBrace;
+	BfInlineTypeReference* mInlineTypeRef;
 	BfSizedArray<BfExpression*> mValues;
 	BfSizedArray<BfTokenNode*> mCommas;
 	BfTokenNode* mCloseBrace;
@@ -2360,6 +2380,7 @@ class BfCaseExpression : public BfExpression
 public:
 	BF_AST_TYPE(BfCaseExpression, BfExpression);
 
+	BfAstNode* mNotToken;
 	BfTokenNode* mCaseToken;
 	BfExpression* mCaseExpression;
 	BfTokenNode* mEqualsNode;
@@ -2443,11 +2464,23 @@ public:
 	BfGenericParamsDeclaration* mGenericParams;
 	BfGenericConstraintsDeclaration* mGenericConstraintsDeclaration;
 	bool mIgnoreDeclaration;
+	char* mAnonymousName;
 
 	BfTokenNode* mColonToken;
 	BfSizedArray<ASTREF(BfTypeReference*)> mBaseClasses;
 	BfSizedArray<ASTREF(BfAstNode*)> mBaseClassCommas;
+	BfSizedArray<BfTypeDeclaration*> mAnonymousTypes;
+	
+	bool IsAnonymous();	
+	bool IsAnonymousInitializerType();
+
 };	BF_AST_DECL(BfTypeDeclaration, BfAstNode);
+
+class BfInitializerTypeDeclaration : public BfTypeDeclaration
+{
+public:
+	BF_AST_TYPE(BfInitializerTypeDeclaration, BfTypeDeclaration);
+};	BF_AST_DECL(BfInitializerTypeDeclaration, BfTypeDeclaration);
 
 class BfTypeAliasDeclaration : public BfTypeDeclaration
 {
@@ -2468,6 +2501,14 @@ public:
 	bool IsTypeDefTypeReference();
 	String ToCleanAttributeString();
 };	BF_AST_DECL(BfTypeReference, BfAstNode);
+
+class BfInlineTypeReference : public BfTypeReference
+{
+public:
+	BF_AST_TYPE(BfInlineTypeReference, BfTypeReference);
+	
+	BfTypeDeclaration* mTypeDeclaration;
+};	BF_AST_DECL(BfInlineTypeReference, BfTypeReference);
 
 class BfDirectTypeReference : public BfTypeReference
 {
@@ -2572,6 +2613,12 @@ public:
 	ASTREF(BfTypeReference*) mLeft;
 	ASTREF(BfTokenNode*) mDot;
 	ASTREF(BfTypeReference*) mRight;
+
+	bool IsGlobalLookup()
+	{
+		return (mDot != NULL) && (mDot->mToken == BfToken_ColonColon);
+	}
+
 };	BF_AST_DECL(BfQualifiedTypeReference, BfTypeReference);
 
 class BfResolvedTypeReference : public BfTypeReference
@@ -2950,6 +2997,14 @@ public:
 	BfSizedArray<BfTokenNode*> mCommas;
 };	BF_AST_DECL(BfObjectCreateExpression, BfMethodBoundExpression);
 
+class BfExtendExpression : public BfExpression
+{
+public:
+	BF_AST_TYPE(BfExtendExpression, BfExpression);
+	BfAstNode* mTarget;
+	BfTypeDeclaration* mTypeDecl;
+};	BF_AST_DECL(BfExtendExpression, BfExpression);
+
 class BfBoxExpression : public BfExpression
 {
 public:
@@ -3001,6 +3056,13 @@ public:
 
 	BfAstNode* mTargetNode;
 
+	BfAstNode* GetScopeNameNode()
+	{
+		if ((mColonToken != NULL) && (mColonToken->mToken == BfToken_ColonColon))
+			return mColonToken;
+		return mScopeName;
+	}
+
 // 	virtual bool IsMissingSemicolon() override
 // 	{
 // 		return BfNodeDynCastExact<BfBlock>(mTargetNode) == NULL;
@@ -3024,6 +3086,13 @@ public:
 	BfAstNode* mTarget;
 	BfTokenNode* mColonToken;
 	BfAstNode* mScopeName; // :, mixin, or identifier
+
+	BfAstNode* GetScopeNameNode()
+	{
+		if ((mColonToken != NULL) && (mColonToken->mToken == BfToken_ColonColon))
+			return mColonToken;
+		return mScopeName;
+	}
 };	BF_AST_DECL(BfScopedInvocationTarget, BfAstNode);
 
 class BfInvocationExpression : public BfMethodBoundExpression
@@ -3569,6 +3638,7 @@ public:
 
 const char* BfTokenToString(BfToken token);
 bool BfTokenIsKeyword(BfToken token);
+bool BfTokenIsTypeDecl(BfToken token);
 BfBinaryOp BfAssignOpToBinaryOp(BfAssignmentOp assignmentOp);
 BfBinaryOp BfGetOppositeBinaryOp(BfBinaryOp origOp);
 BfBinaryOp BfGetFlippedBinaryOp(BfBinaryOp origOp);

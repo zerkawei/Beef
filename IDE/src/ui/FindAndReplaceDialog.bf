@@ -67,7 +67,7 @@ namespace IDE.ui
 			AddDialogComponent(mMatchCaseCheckbox);
 
 			mMatchWholeWordCheckbox = new DarkCheckBox();
-			mMatchWholeWordCheckbox.Label = "Match &whole case";
+			mMatchWholeWordCheckbox.Label = "Match &whole word";
 			AddDialogComponent(mMatchWholeWordCheckbox);
 
 			mAbortButton = new DarkButton();
@@ -86,10 +86,10 @@ namespace IDE.ui
 				bool isMultiline = false;
 
 				var content = editWidget.mEditWidgetContent;
-				if (content.mSelection.HasValue)
+				if (content.CurSelection.HasValue)
 				{
-					int selStart = content.mSelection.Value.MinPos;
-					int selEnd = content.mSelection.Value.MaxPos;
+					int selStart = content.CurSelection.Value.MinPos;
+					int selEnd = content.CurSelection.Value.MaxPos;
 					for (int i = selStart; i < selEnd; i++)
 					{
 					    if (content.mData.mText[i].mChar == '\n')
@@ -322,11 +322,14 @@ namespace IDE.ui
         {
             base.Draw(g);
 
-            g.DrawString("Find what:", 6, mEditWidget.mY - GS!(18));
-			if (mReplaceWidget != null)
-				g.DrawString("Replace with:", GS!(6), mReplaceWidget.mY - GS!(18));
-            g.DrawString("Look in:", GS!(6), mLocationCombo.mY - GS!(18));
-			g.DrawString("Look at these file types:", GS!(6), mFileTypesCombo.mY - GS!(18));
+			using (g.PushColor(DarkTheme.COLOR_TEXT))
+			{
+				g.DrawString("Find what:", 6, mEditWidget.mY - GS!(18));
+				if (mReplaceWidget != null)
+					g.DrawString("Replace with:", GS!(6), mReplaceWidget.mY - GS!(18));
+				g.DrawString("Look in:", GS!(6), mLocationCombo.mY - GS!(18));
+				g.DrawString("Look at these file types:", GS!(6), mFileTypesCombo.mY - GS!(18));
+			}
         }
 
 		public override void Update()

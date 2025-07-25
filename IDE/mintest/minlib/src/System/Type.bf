@@ -15,6 +15,15 @@ namespace System
         //  including the vtable and interface slots
     }
 
+	public class TypeDeclaration
+	{
+		protected TypeId mTypeId;
+		protected TypeId mBaseTypeId;
+		protected TypeId mOuterTypeId;
+		protected TypeFlags mTypeFlags;
+		protected TypeCode mTypeCode;
+	}
+
     [Ordered, AlwaysInclude(AssumeInstantiated=true)]
     public class Type
     {
@@ -1257,7 +1266,7 @@ namespace System.Reflection
 			int32 stackCount = Compiler.Options.AllocStackCount;
 			if (mAllocStackCountOverride != 0)
 				stackCount = mAllocStackCountOverride;
-			obj = Internal.Dbg_ObjectAlloc([Friend]mTypeClassVData, arraySize, [Friend]mInstAlign, stackCount);
+			obj = Internal.Dbg_ObjectAlloc([Friend]mTypeClassVData, arraySize, [Friend]mInstAlign, stackCount, 0);
 #else
 			void* mem = new [Align(16)] uint8[arraySize]* (?);
 			obj = Internal.UnsafeCastToObject(mem);
@@ -1338,7 +1347,7 @@ namespace System.Reflection
 		EnumCase				= 0x0400
     }
 
-	public enum MethodFlags : uint16
+	public enum MethodFlags : uint32
 	{
 		MethodAccessMask    	=  0x0007,
 		PrivateScope        	=  0x0000,     // Member not referenceable.
@@ -1373,5 +1382,9 @@ namespace System.Reflection
 		ThisCall				=  0x3000, // Purposely resuing StdCall|FastCall
 		Mutating				=  0x4000,
 		Constructor				=  0x8000,
+		AppendBit0				= 0x10000,
+		AppendBit1				= 0x20000,
+		CheckedBit0				= 0x40000,
+		CheckedBit1				= 0x80000
 	}
 }

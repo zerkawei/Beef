@@ -199,6 +199,7 @@
     <ClCompile Include="gfx\Shader.cpp" />
     <ClCompile Include="gfx\Texture.cpp" />
     <ClCompile Include="img\BFIData.cpp" />
+    <ClCompile Include="img\BMPData.cpp" />
     <ClCompile Include="img\ImageAdjustments.cpp" />
     <ClCompile Include="img\ImageData.cpp" />
     <ClCompile Include="img\ImageUtils.cpp" />
@@ -879,6 +880,7 @@
     <ClCompile Include="util\Json.cpp" />
     <ClCompile Include="util\MappedFile.cpp" />
     <ClCompile Include="util\Matrix4.cpp" />
+    <ClCompile Include="util\MemLogger.cpp" />
     <ClCompile Include="util\PerfTimer.cpp" />
     <ClCompile Include="util\Point.cpp" />
     <ClCompile Include="util\PolySpline.cpp" />
@@ -908,6 +910,7 @@
     <ClInclude Include="gfx\Shader.h" />
     <ClInclude Include="gfx\Texture.h" />
     <ClInclude Include="img\BFIData.h" />
+    <ClInclude Include="img\BMPData.h" />
     <ClInclude Include="img\ImageAdjustments.h" />
     <ClInclude Include="img\ImageData.h" />
     <ClInclude Include="img\ImageUtils.h" />
@@ -1045,6 +1048,7 @@
     <ClInclude Include="util\Json.h" />
     <ClInclude Include="util\MappedFile.h" />
     <ClInclude Include="util\Matrix4.h" />
+    <ClInclude Include="util\MemLogger.h" />
     <ClInclude Include="util\PerfTimer.h" />
     <ClInclude Include="util\Point.h" />
     <ClInclude Include="util\PolySpline.h" />

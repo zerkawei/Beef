@@ -195,6 +195,7 @@ uint64 BFGetTickCountMicro();
 uint64 BFGetTickCountMicroFast();
 
 extern String vformat(const char* fmt, va_list argPtr);
+extern void vformat(StringImpl& str, const char* fmt, va_list argPtr);
 extern String StrFormat(const char* fmt ...);
 void ExactMinimalFloatToStr(float f, char* str);
 void ExactMinimalDoubleToStr(double d, char* str);
@@ -242,6 +243,7 @@ bool FileExists(const StringImpl& path, String* outActualName = NULL);
 bool DirectoryExists(const StringImpl& path, String* outActualName = NULL);
 bool RecursiveCreateDirectory(const StringImpl& dirName);
 bool RecursiveDeleteDirectory(const StringImpl& dirName);
+bool ParseMemorySpan(const StringImpl& str, void*& outPtr, int& outSize, StringImpl* outKey = NULL);
 
 #define CHARTAG(val) FromBIGEndian(val)
 

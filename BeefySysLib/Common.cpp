@@ -660,7 +660,7 @@ void Beefy::ExactMinimalDoubleToStr(double d, char* str)
 
 static char* StbspCallback(char *buf, void *user, int len)
 {
-    ((String*)user)->Append(buf, len);
+    ((StringImpl*)user)->Append(buf, len);
     return buf;
 }
 
@@ -820,6 +820,12 @@ String Beefy::vformat(const char* fmt, va_list argPtr)
     char buf[STB_SPRINTF_MIN];
     BF_stbsp_vsprintfcb(StbspCallback, (void*)&str, buf, fmt, argPtr);
     return str;
+}
+
+void Beefy::vformat(StringImpl& str, const char* fmt, va_list argPtr)
+{	
+	char buf[STB_SPRINTF_MIN];
+	BF_stbsp_vsprintfcb(StbspCallback, (void*)&str, buf, fmt, argPtr);	
 }
 #endif
 
@@ -1380,6 +1386,35 @@ void Beefy::BFFatalError(const char* message, const char* file, int line)
 	BFFatalError(String(message), String(file), line);
 }
 
-void MakeUpper(const StringImpl& theString)
+bool Beefy::ParseMemorySpan(const StringImpl& str, void*& outPtr, int& outSize, StringImpl* outKey)
 {
+#ifndef BF_SMALL
+	static int anonymousIdx = 0;
+
+	if (str.StartsWith("@"))
+	{
+		int colon = (int)str.IndexOf(':');
+		String addrStr = str.Substring(1, colon - 1);
+		String lenStr = str.Substring(colon + 1);
+		outPtr = (void*)(intptr)strtoll(addrStr.c_str(), NULL, 16);
+		outSize = (int)strtol(lenStr.c_str(), NULL, 10);
+
+		if (outKey != NULL)
+		{
+			int nextColon = (int)str.IndexOf(':', colon + 1);
+			if (nextColon > 0)
+			{
+				*outKey = str.Substring(nextColon + 1);
+			}
+			else
+			{
+				int dotPos = (int)str.IndexOf('.', colon + 1);
+				*outKey = StrFormat("ANON_%d", anonymousIdx++) + str.Substring(dotPos);
+			}
+		}
+
+		return true;
+	}
+#endif
+	return false;
 }

@@ -1,3 +1,4 @@
+#pragma warning disable 4200
 #pragma warning disable 168
 
 using System;
@@ -88,6 +89,52 @@ namespace Tests
 			// Started from 129 elements, no less
 		}
 
+		[AllowDuplicates]
+		public enum EnumJ : uint32
+		{
+			SDL_BUTTON_LEFT     = 1,
+			SDL_BUTTON_LMASK    = (1u << ((SDL_BUTTON_LEFT.Underlying) - 1)),
+		}
+
+		[AllowDuplicates]
+		public enum EnumK
+		{
+			SDL_BUTTON_LEFT     = 1,
+			SDL_BUTTON_LMASK    = (1u << ((SDL_BUTTON_LEFT.Underlying) - 1)),
+		}
+
+		public enum EnumL
+		{
+			case A;
+
+			public static int operator implicit(Self self);
+		}
+
+		public enum EnumM
+		{
+		    public static implicit operator int(Self self);
+
+		    case A;
+		    case B;
+		    case C;
+		}
+
+		[CRepr]
+		public enum EnumN
+		{
+			A,
+			B,
+			C,
+			D = 4
+		}
+
+		public enum EnumO
+		{
+			case None;
+			case EnumN(EnumN n);
+			case Delegate(delegate void());
+		}
+
 		[Test]
 		static void TestBasic()
 		{
@@ -97,6 +144,13 @@ namespace Tests
 			Test.Assert(sizeof(EnumB) == 2);
 			Test.Assert(sizeof(EnumC) == 4);
 			Test.Assert(sizeof(EnumD) == 8);
+
+			EnumM em = ?;
+			int i = em;
+			uint u = (uint)em;
+
+			i = 123;
+			EnumA e = (EnumA)i;
 		}
 
 		[Test]
@@ -181,6 +235,16 @@ namespace Tests
 
 			const EnumE e0 = .A;
 			const EnumE e1 = .B(1);
+
+			EnumO eo = .Delegate((delegate void()) new () => {});
+			if (eo case .Delegate(var dlg))
+				delete dlg;
+
+			eo = .EnumN(.A);
+
+			eo = .Delegate(new () => {});
+			if (eo case .Delegate(var dlg))
+				delete dlg;
 		}
 
 		[Test]
@@ -229,6 +293,45 @@ namespace Tests
 			if (ei case .DY(var eh))
 				foundH = eh == .B;
 			Test.Assert(foundH);
+
+			Test.Assert((int)EnumJ.SDL_BUTTON_LMASK == 1);
+			Test.Assert(typeof(EnumJ).Size == 4);
+
+			Test.Assert((int)EnumK.SDL_BUTTON_LMASK == 1);
+			Test.Assert(typeof(EnumK).Size == 8);
+
+			EnumL el = .A;
+			Test.Assert(el == 0);
+		}
+
+		[Test]
+		static void TestCrepr()
+		{
+			EnumN value = .B;
+
+			Test.Assert(sizeof(EnumN) == sizeof(System.Interop.c_int));
+
+			Test.Assert(value.HasFlag(.A) == true);
+			Test.Assert(value.HasFlag(.B) == true);
+			Test.Assert(value.HasFlag(.B | .C) == false);
+			Test.Assert(value.HasFlag(.D) == false);
+			Test.Assert(value.Underlying == 1);
+
+			value = .B | .C;
+			Test.Assert(value.HasFlag(.A) == true);
+			Test.Assert(value.HasFlag(.B) == true);
+			Test.Assert(value.HasFlag(.B | .C) == true);
+			Test.Assert(value.HasFlag(.D) == false);
+			Test.Assert(value.Underlying == 3);
+
+			ref System.Interop.c_int valueRef = ref value.UnderlyingRef;
+			valueRef = 2;
+			Test.Assert(value == .C);
+
+			String str = scope String();
+			value.ToString(str);
+
+			Test.Assert(str == "C");
 		}
 	}
 }

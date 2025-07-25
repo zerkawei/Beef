@@ -153,7 +153,8 @@ namespace IDE
 			public List<String> mSymbolSearchPath = new .() ~ DeleteContainerAndItems!(_);
 			public List<String> mAutoFindPaths = new .() ~ DeleteContainerAndItems!(_);
 			public int32 mProfileSampleRate = 1000;
-			public bool mAutoEvaluateProperties = false;
+			public bool mAutoEvaluatePropertiesOnHover = false;
+			public bool mAutoRefreshWatches = false;
 
 			public void Serialize(StructuredData sd)
 			{
@@ -194,7 +195,8 @@ namespace IDE
 					sd.RemoveIfEmpty();
 				}
 				sd.Add("ProfileSampleRate", mProfileSampleRate);
-				sd.Add("AutoEvaluateProperties", mAutoEvaluateProperties);
+				sd.Add("AutoEvaluateProperties", mAutoEvaluatePropertiesOnHover);
+				sd.Add("AutoRefreshWatches", mAutoRefreshWatches);
 			}
 
 			public void Deserialize(StructuredData sd)
@@ -233,7 +235,8 @@ namespace IDE
 					}
 				}
 				sd.Get("ProfileSampleRate", ref mProfileSampleRate);
-				sd.Get("AutoEvaluateProperties", ref mAutoEvaluateProperties);
+				sd.Get("AutoEvaluateProperties", ref mAutoEvaluatePropertiesOnHover);
+				sd.Get("AutoRefreshWatches", ref mAutoRefreshWatches);
 			}
 
 			public void Apply()
@@ -264,6 +267,9 @@ namespace IDE
 				gApp.mDebugger.SetSourcePathRemap(remapStr);
 
 				mProfileSampleRate = Math.Clamp(mProfileSampleRate, 10, 10000);
+
+				gApp.mDebugger.IncrementStateIdx();
+				gApp.RefreshWatches();
 			}
 
 			public void SetDefaults()
@@ -305,7 +311,12 @@ namespace IDE
 		public class Colors
 		{
 			public Color mText = 0xFFFFFFFF;
+			public Color mTextDisabled = 0xFFA8A8A8;
+			public Color mTextSelected = 0xFF2f5c88;
 			public Color mWindow = 0xFF44444D;
+			public Color mDialogOutlineIn = 0xFF404040;
+			public Color mDialogOutlineOut = 0xFF202020;
+			public Color mGrid = 0x0CFFFFFF;
 			public Color mBackground = 0xFF1C1C24;
 			public Color mSelectedOutline = 0xFFCFAE11;
 			public Color mMenuFocused = 0xFFE5A910;
@@ -340,10 +351,13 @@ namespace IDE
 			public Color mError = 0xFFFF0000;
 			public Color mBuildError = 0xFFFF8080;
 			public Color mBuildWarning = 0xFFFFFF80;
+			public Color mBuildSuccess = 0xFF80FF80;
 			public Color mVisibleWhiteSpace = 0xFF9090C0;
 			public Color mCurrentLineHilite = 0xFF4C4C54;
 			public Color mCurrentLineNumberHilite = 0x18FFFFFF;
 			public Color mCharPairHilite = 0x1DFFFFFF;
+			public Color mCodeHilite = 0xFF384858;
+			public Color mCodeHiliteUnfocused = 0x80384858;
 
 			public void Deserialize(StructuredData sd)
 			{
@@ -356,7 +370,12 @@ namespace IDE
 				}
 
 				GetColor("Text", ref mText);
+				GetColor("TextDisabled", ref mTextDisabled);
+				GetColor("TextSelected", ref mTextSelected);
 				GetColor("Window", ref mWindow);
+				GetColor("DialogOutlineIn", ref mDialogOutlineIn);
+				GetColor("DialogOutlineOut", ref mDialogOutlineOut);
+				GetColor("Grid", ref mGrid);
 				GetColor("Background", ref mBackground);
 				GetColor("SelectedOutline", ref mSelectedOutline);
 				GetColor("MenuFocused", ref mMenuFocused);
@@ -408,10 +427,13 @@ namespace IDE
 				GetColor("Error", ref mError);
 				GetColor("BuildError", ref mBuildError);
 				GetColor("BuildWarning", ref mBuildWarning);
+				GetColor("BuildSuccess", ref mBuildSuccess);
 				GetColor("VisibleWhiteSpace", ref mVisibleWhiteSpace);
 				GetColor("CurrentLineHilite", ref mCurrentLineHilite);
 				GetColor("CurrentLineNumberHilite", ref mCurrentLineNumberHilite);
 				GetColor("CharPairHilite", ref mCharPairHilite);
+				GetColor("CodeHilite", ref mCodeHilite);
+				GetColor("CodeHiliteUnfocused", ref mCodeHiliteUnfocused);
 			}
 
 			public void Apply()
@@ -437,10 +459,16 @@ namespace IDE
 				SourceEditWidgetContent.sTextColors[(.)SourceElementType.Error] = mError;
 				SourceEditWidgetContent.sTextColors[(.)SourceElementType.BuildError] = mBuildError;
 				SourceEditWidgetContent.sTextColors[(.)SourceElementType.BuildWarning] = mBuildWarning;
+				SourceEditWidgetContent.sTextColors[(.)SourceElementType.BuildSuccess] = mBuildSuccess;
 				SourceEditWidgetContent.sTextColors[(.)SourceElementType.VisibleWhiteSpace] = mVisibleWhiteSpace;
 
 				DarkTheme.COLOR_TEXT = mText;
+				DarkTheme.COLOR_TEXT_DISABLED = mTextDisabled;
+				DarkTheme.COLOR_TEXT_SELECTED = mTextSelected;
 				DarkTheme.COLOR_WINDOW = mWindow;
+				DarkTheme.COLOR_DIALOG_OUTLINE_IN = mDialogOutlineIn;
+				DarkTheme.COLOR_DIALOG_OUTLINE_OUT = mDialogOutlineOut;
+				DarkTheme.COLOR_GRID = mGrid;
 				DarkTheme.COLOR_BKG = mBackground;
 				DarkTheme.COLOR_SELECTED_OUTLINE = mSelectedOutline;
 				DarkTheme.COLOR_MENU_FOCUSED = mMenuFocused;
@@ -670,6 +698,7 @@ namespace IDE
 
 			public List<String> mFonts = new .() ~ DeleteContainerAndItems!(_);
 			public float mFontSize = 12;
+			public float mLineHeightScale = 1.0f;
 			public AutoCompleteShowKind mAutoCompleteShowKind = .PanelIfVisible;
 			public bool mAutoCompleteRequireControl = true;
 			public bool mAutoCompleteRequireTab = false;
@@ -678,6 +707,7 @@ namespace IDE
 			public bool mFuzzyAutoComplete = false;
 			public bool mShowLocatorAnim = true;
 			public bool mHiliteCursorReferences = true;
+			public bool mDebugMultiCursor = false;
 			public bool mHiliteCurrentLine = false;
 			public bool mLockEditing;
 			public LockWhileDebuggingKind mLockEditingWhenDebugging = .WhenNotHotSwappable;// Only applicable for
@@ -704,6 +734,7 @@ namespace IDE
 						sd.Add(str);
 				}
 				sd.Add("FontSize", mFontSize);
+				sd.Add("LineHeightScale", mLineHeightScale);
 				sd.Add("AutoCompleteShowKind", mAutoCompleteShowKind);
 				sd.Add("AutoCompleteRequireControl", mAutoCompleteRequireControl);
 				sd.Add("AutoCompleteRequireTab", mAutoCompleteRequireTab);
@@ -741,6 +772,7 @@ namespace IDE
 				}
 				sd.Get("UIScale", ref gApp.mSettings.mUISettings.mScale); // Legacy
 				sd.Get("FontSize", ref mFontSize);
+				sd.Get("LineHeightScale", ref mLineHeightScale);
 				sd.Get("AutoCompleteShowKind", ref mAutoCompleteShowKind);
 				sd.Get("AutoCompleteRequireControl", ref mAutoCompleteRequireControl);
 				sd.Get("AutoCompleteRequireTab", ref mAutoCompleteRequireTab);
@@ -827,6 +859,9 @@ namespace IDE
 
 			public void SetDefaults()
 			{
+				Add("Add Cursor Above", "Ctrl+Alt+Up");
+				Add("Add Cursor Below", "Ctrl+Alt+Down");
+				Add("Add Selection to Next Find Match", "Ctrl+D");
 				Add("Autocomplete", "Ctrl+Space");
 				Add("Bookmark Next", "F2");
 				Add("Bookmark Prev", "Shift+F2");
@@ -851,7 +886,6 @@ namespace IDE
 				Add("Comment Lines", "Ctrl+K, Ctrl+/");
 				Add("Comment Toggle", "Ctrl+K, Ctrl+T");
 				Add("Debug Comptime", "Alt+F7");
-				Add("Duplicate Line", "Ctrl+D");
 				Add("Find Class", "Alt+Shift+L");
 				Add("Find in Document", "Ctrl+F");
 				Add("Find in Files", "Ctrl+Shift+F");
@@ -865,6 +899,7 @@ namespace IDE
 				Add("Make Uppercase", "Ctrl+Shift+U");
 				Add("Match Brace Select", "Ctrl+Shift+RBracket");
 				Add("Match Brace", "Ctrl+RBracket");
+				//Add("Move Last Selection to Next Find Match, "Ctrl+K, Ctrl+D");
 				Add("Move Line Down", "Alt+Shift+Down");
 				Add("Move Line Up", "Alt+Shift+Up");
 				Add("Move Statement Down", "Ctrl+Shift+Down");
@@ -1060,6 +1095,35 @@ namespace IDE
 				List<String> allocatedStrs = scope .();
 				defer { ClearAndDeleteItems(allocatedStrs); }
 
+				Dictionary<String, Entry> mappedEntries = scope .();
+
+				void AddEntry(List<Entry> newEntries, Entry entry, bool isNew)
+				{
+					newEntries.Add(entry);
+
+					// Delete previous command bindings when we are adding new entries
+					let keyEntryStr = scope String();
+					KeyState.ToString(entry.mKeys, keyEntryStr);
+					//keyEntryStr.Append(" ");
+					//entry.mContextFlags.To keyEntryStr);
+
+					String* keyPtr;
+					Entry* valuePtr;
+					if (mappedEntries.TryAdd(keyEntryStr, out keyPtr, out valuePtr))
+					{
+						*keyPtr = new String(keyEntryStr);
+						*valuePtr = entry;
+					}
+					else
+					{
+						if (isNew)
+						{
+							newEntries.Remove(*valuePtr);
+							delete *valuePtr;
+						}
+					}
+				}
+
 				List<Entry> newEntries = new .();
 				for (let cmdStr in sd.Enumerate())
 				{
@@ -1088,20 +1152,23 @@ namespace IDE
 					keyList.CopyTo(keyArr);
 					entry.mKeys = keyArr;
 
-					newEntries.Add(entry);
 					usedCommands.Add(entry.mCommand);
+					AddEntry(newEntries, entry, false);
 				}
 
 				for (var entry in mEntries)
 				{
 					if (usedCommands.Contains(entry.mCommand))
 						continue;
-					newEntries.Add(entry);
 					mEntries[@entry.Index] = null;
+					AddEntry(newEntries, entry, true);
 				}
 
 				DeleteContainerAndItems!(mEntries);
 				mEntries = newEntries;
+
+				for (let keyEntryStr in mappedEntries.Keys)
+					delete keyEntryStr;
 			}
 		}
 
@@ -1120,6 +1187,7 @@ namespace IDE
 			RedirectToImmediate,
 		}
 
+		public bool mSettingsValid;
 		public bool mLoadedSettings;
 		public String mSettingFileText ~ delete _;
 		public DateTime mSettingFileDateTime;
@@ -1176,6 +1244,9 @@ namespace IDE
 
 		public void Save()
 		{
+			if (!mSettingsValid)
+				return;
+
 			String path = scope .();
 			GetSettingsPath(path);
 
@@ -1222,6 +1293,7 @@ namespace IDE
 			{
 				sd.Add("WakaTimeKey", mWakaTimeKey);
 				sd.Add("EnableDevMode", mEnableDevMode);
+				sd.Add("DebugMultiCursor", DarkEditWidgetContent.sDebugMultiCursor);
 			}
 
 			using (sd.CreateObject("TutorialsFinished"))
@@ -1263,12 +1335,48 @@ namespace IDE
 
 		public void Load()
 		{
+			mSettingsValid = true;
+
 			String path = scope .();
 			GetSettingsPath(path);
+			IDEUtils.FixFilePath(path);
 
-			let sd = scope StructuredData();
-			if (sd.Load(path) case .Err)
+			if (!File.Exists(path))
+			{
 				return;
+			}
+
+			StructuredData sd = null;
+			LoadLoop: while (true)
+			{
+				sd = scope:: StructuredData();
+				if (sd.Load(path) case .Err(let err))
+				{
+					int result = 0;
+#if !CLI && BF_PLATFORM_WINDOWS
+					result = Windows.MessageBoxA(default, scope $"Failed to load settings file '{path}' with error '{err}'", "BEEF IDE SETTINGS FAILED",
+						Windows.MB_ICONHAND | (.)2);
+#endif
+					if (result == 3) // Abort
+					{
+						gApp.mStopPending = true;
+						mSettingsValid = false;
+						return;
+					}
+					else if (result == 4) // Retry
+					{
+						continue;
+					}
+					else // Ignore
+					{
+						return;
+					}
+				}
+				else
+				{
+					break;
+				}
+			}
 
 			if (File.GetLastWriteTime(path) case .Ok(let dt))
 				mSettingFileDateTime = dt;
@@ -1322,6 +1430,7 @@ namespace IDE
 			{
 				sd.Get("WakaTimeKey", mWakaTimeKey);
 				sd.Get("EnableDevMode", ref mEnableDevMode);
+				sd.Get("DebugMultiCursor", ref DarkEditWidgetContent.sDebugMultiCursor);
 			}
 
 			using (sd.Open("TutorialsFinished"))
@@ -1337,6 +1446,7 @@ namespace IDE
 		{
 			gApp.mSettings.mUISettings.mScale = Math.Clamp(gApp.mSettings.mUISettings.mScale, 50, 400);
 			gApp.mSettings.mEditorSettings.mFontSize = Math.Clamp(gApp.mSettings.mEditorSettings.mFontSize, 6.0f, 72.0f);
+			gApp.mSettings.mEditorSettings.mLineHeightScale = Math.Clamp(gApp.mSettings.mEditorSettings.mLineHeightScale, 0.125f, 10.0f);
 
 			mUISettings.Apply();
 			mEditorSettings.Apply();
@@ -1349,7 +1459,6 @@ namespace IDE
 			mKeySettings.Apply();
 			mDebuggerSettings.Apply();
 			
-
 			for (var window in gApp.mWindows)
 			{
 				if (var widgetWindow = window as WidgetWindow)
@@ -1360,7 +1469,12 @@ namespace IDE
 
 			for (let value in gApp.mFileEditData.Values)
 				if (value.mEditWidget != null)
-					((SourceEditWidgetContent)value.mEditWidget.Content).mHiliteCurrentLine = gApp.mSettings.mEditorSettings.mHiliteCurrentLine;
+				{
+					var ewc = (SourceEditWidgetContent)value.mEditWidget.Content;
+					ewc.mHiliteCurrentLine = gApp.mSettings.mEditorSettings.mHiliteCurrentLine;
+					ewc.mLineHeightScale = gApp.mSettings.mEditorSettings.mLineHeightScale;
+					ewc.RehupLineCoords();
+				}
 
 			if (!mWakaTimeKey.IsEmpty)
 			{

@@ -99,14 +99,19 @@ namespace System
 		[CallingConvention(.Cdecl)]
 		public extern static void SetMaxRawDeferredObjectFreePercentage(int maxPercentage);
 #else
+		[LinkName("__GC_Report")]
 		public static void Report() {}
+		[LinkName("__GC_Shutdown")]
 		public static void Shutdown() {}
+		[LinkName("__GC_SetMaxRawDeferredObjectFreePercentage")]
 		public static void SetMaxRawDeferredObjectFreePercentage(int maxPercentage) {}
 #endif
 
 #if BF_ENABLE_REALTIME_LEAK_CHECK
 		[CallingConvention(.Cdecl)]
 		private extern static void Init();
+		[CallingConvention(.Cdecl)]
+		public extern static void Disable();
 		[CallingConvention(.Cdecl)]
         public extern static void Collect(bool async = true);
 		[CallingConvention(.Cdecl)]
@@ -136,16 +141,27 @@ namespace System
 		[CallingConvention(.Cdecl)]
 		public extern static void ExcludeThreadId(int thereadId);
 #else
+		[LinkName("__GC_Disable")]
+		public static void Disable() {}
+		[LinkName("__GC_Collect")]
 		public static void Collect(bool async = true) {}
+		[LinkName("__GC_MarkAllStaticMembers")]
 		private static void MarkAllStaticMembers() {}
+		[LinkName("__GC_DebugDumpLeaks")]
 		public static void DebugDumpLeaks() {}
-		[SkipCall]
-		public static void Mark(Object obj) {}		
+		[SkipCall, LinkName("__GC_Mark1")]
+		public static void Mark(Object obj) {}
+		[LinkName("__GC_Mark2")]
 		public static void Mark(void* ptr, int size) {}
+		[LinkName("__GC_SetAutoCollectPeriod")]
 		public static void SetAutoCollectPeriod(int periodMS) {}
+		[LinkName("__GC_SetCollectFreeThreshold")]
 		public static void SetCollectFreeThreshold(int freeBytes) {}
+		[LinkName("__GC_SetMaxPausePercentage")]
 		public static void SetMaxPausePercentage(int maxPausePercentage) {}
+		[LinkName("__GC_AddPendingThread")]
 		static void AddPendingThread(void* internalThreadInfo) {}
+		[LinkName("__GC_ExcludeThreadId")]
 		public static void ExcludeThreadId(int thereadId) {}
 #endif
 

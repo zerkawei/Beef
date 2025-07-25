@@ -695,23 +695,32 @@ namespace IDE
 					    return false;
 					}
 
-					String compilerExePath = scope String();
+					// Set for auto-install without prompting
+					gApp.mSettings.mEmscriptenPendingInstall = false;
+
+					String wasmPath = Path.GetAbsolutePath("../wasm", gApp.mInstallDir, .. scope .());
+					if (!Directory.Exists(wasmPath))
+						Path.GetAbsolutePath("../../wasm", gApp.mInstallDir, wasmPath..Clear());
+					IDEUtils.FixFilePath(wasmPath);
+
 					if (gApp.mSettings.mEmscriptenPath.IsEmpty)
 					{
-						// Set for auto-install without prompting
 						gApp.mSettings.mEmscriptenPendingInstall = true;
+					}
+					else if (!File.Exists(scope $"{wasmPath}/EmsdkDep1_Done.txt"))
+					{
+						gApp.mSettings.mEmscriptenPendingInstall = true;
+					}
 
+					String compilerExePath = scope String();
+					if (gApp.mSettings.mEmscriptenPendingInstall)
+					{
 #if CLI
 						gApp.Fail("Emscripten path not configured. Check Wasm configuration in File\\Preferences\\Settings.");
 						return false;
 #else
 						if (gApp.mSettings.mEmscriptenPendingInstall)
 						{
-							String wasmPath = Path.GetAbsolutePath("../wasm", gApp.mInstallDir, .. scope .());
-							if (!Directory.Exists(wasmPath))
-								Path.GetAbsolutePath("../../wasm", gApp.mInstallDir, wasmPath..Clear());
-							IDEUtils.FixFilePath(wasmPath);
-
 							var runCmd = gApp.QueueRun(scope $"{wasmPath}/fetch_wasm.bat", "", wasmPath, .UTF8);
 							runCmd.mOnlyIfNotFailed = true;
 
@@ -849,8 +858,7 @@ namespace IDE
 
 			if ((workspaceOptions.mEnableObjectDebugFlags) 
    				|| (workspaceOptions.mAllocType == .Debug) 
-       				|| (workspaceOptions.mAllocType == .Stomp)
-	   			|| (workspaceOptions.mAllocStackTraceDepth > 0))
+       			|| (workspaceOptions.mAllocType == .Stomp))
 			{
 				outDbg.Append("Beef", IDEApp.sRTVersionStr, "Dbg");
 				outDbg.Append((Workspace.PlatformType.GetPtrSizeByName(gApp.mPlatformName) == 4) ? "32" : "64");
@@ -1019,6 +1027,12 @@ namespace IDE
 			AddBuildFileDependency(project.mWindowsOptions.mIconFile);
 			AddBuildFileDependency(project.mWindowsOptions.mManifestFile);
 
+			String fileVersion = scope String();
+			gApp.ResolveConfigString(gApp.mPlatformName, workspaceOptions, project, options, project.mWindowsOptions.mFileVersion, "file version", fileVersion);
+
+			String productVersion = scope String();
+			gApp.ResolveConfigString(gApp.mPlatformName, workspaceOptions, project, options, project.mWindowsOptions.mProductVersion, "product version", productVersion);
+
 			switch (mPlatformType)
 			{
 			case .Windows:
@@ -1027,8 +1041,8 @@ namespace IDE
 				cacheStr.AppendF("Company\t{}\n", project.mWindowsOptions.mCompany);
 				cacheStr.AppendF("Product\t{}\n", project.mWindowsOptions.mProduct);
 				cacheStr.AppendF("Copyright\t{}\n", project.mWindowsOptions.mCopyright);
-				cacheStr.AppendF("FileVersion\t{}\n", project.mWindowsOptions.mFileVersion);
-				cacheStr.AppendF("ProductVersion\t{}\n", project.mWindowsOptions.mProductVersion);
+				cacheStr.AppendF("FileVersion\t{}\n", fileVersion);
+				cacheStr.AppendF("ProductVersion\t{}\n", productVersion);
 			case .Linux:
 				cacheStr.AppendF("Options\t{}\n", project.mLinuxOptions.mOptions);
 			case .Wasm:
@@ -1257,11 +1271,17 @@ namespace IDE
 								}
 							}
 
+							String fileVersion = scope String();
+							gApp.ResolveConfigString(gApp.mPlatformName, workspaceOptions, project, options, winOptions.mFileVersion, "file version", fileVersion);
+
+							String productVersion = scope String();
+							gApp.ResolveConfigString(gApp.mPlatformName, workspaceOptions, project, options, winOptions.mProductVersion, "product version", productVersion);
+
 							let targetFileName = scope String();
 							Path.GetFileName(targetPath, targetFileName);
 
 							if (resGen.AddVersion(winOptions.mDescription, winOptions.mComments, winOptions.mCompany, winOptions.mProduct,
-		                        winOptions.mCopyright, winOptions.mFileVersion, winOptions.mProductVersion, targetFileName) case .Err)
+		                        winOptions.mCopyright, fileVersion, productVersion, targetFileName) case .Err)
 							{
 								gApp.OutputErrorLine("Failed to add version");
 								return .Err;

@@ -98,6 +98,7 @@ namespace IDE.ui
 			category.mTextColor = Color.Mult(DarkTheme.COLOR_TEXT, cHeaderColor);
 			AddPropertiesItem(category, "Font", "mFonts");
 			AddPropertiesItem(category, "Font Size", "mFontSize");
+			AddPropertiesItem(category, "Line Height Scale", "mLineHeightScale", null, .Percent);
 			AddPropertiesItem(category, "Autocomplete", "mAutoCompleteShowKind");
 			AddPropertiesItem(category, "Autocomplete Require Control", "mAutoCompleteRequireControl");
 			AddPropertiesItem(category, "Autocomplete Require Tab", "mAutoCompleteRequireTab");
@@ -185,24 +186,6 @@ namespace IDE.ui
 			category.Open(true, true);
 		}
 
-		void CommandContextToString(IDECommand.ContextFlags contextFlags, String str)
-		{
-			bool isFirst = true;
-
-			void AddFlagStr(StringView flagStr)
-			{
-				if (isFirst)
-				{
-					str.Append(", ");
-					isFirst = false;
-				}
-				str.Append(flagStr);
-			}
-
-			if (contextFlags.HasFlag(.Editor))
-				AddFlagStr("Editor");
-		}
-
 		void UpdateKeyStates()
 		{
 			Debug.Assert((CategoryType)mPropPage.mCategoryType == .Keys);
@@ -222,7 +205,7 @@ namespace IDE.ui
 				let keyEntryStr = new String();
 				KeyState.ToString(keys, keyEntryStr);
 				keyEntryStr.Append(" ");
-				CommandContextToString(keyEntry.mContextFlags, keyEntryStr);
+				keyEntry.mContextFlags.ContextToString(keyEntryStr);
 
 				String* keyPtr;
 				KeyEntry* valuePtr;
@@ -252,7 +235,7 @@ namespace IDE.ui
 					let keyEntryStr = scope String();
 					KeyState.ToString(keys, keyEntryStr);
 					keyEntryStr.Append(" ");
-					CommandContextToString(keyEntry.mContextFlags, keyEntryStr);
+					keyEntry.mContextFlags.ContextToString(keyEntryStr);
 
 					if (mappedEntries.TryGet(keyEntryStr, var keyPtr, var valuePtr))
 					{
@@ -347,7 +330,8 @@ namespace IDE.ui
 			AddPropertiesItem(root, "Symbol File Locations", "mSymbolSearchPath");
 			AddPropertiesItem(root, "Auto Find Paths", "mAutoFindPaths");
 			AddPropertiesItem(root, "Profile Sample Rate", "mProfileSampleRate");
-			AddPropertiesItem(root, "Auto Evaluate Properties", "mAutoEvaluateProperties");
+			AddPropertiesItem(root, "Auto Eval Properties on Hover", "mAutoEvaluatePropertiesOnHover");
+			AddPropertiesItem(root, "Auto Refresh Side Effects", "mAutoRefreshWatches");
 		}
 
 		protected override void ResetSettings()

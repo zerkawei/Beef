@@ -50,6 +50,7 @@ namespace Beefy.theme.dark
 		}
 
         public Font mFont;                
+		public float mLineHeightScale = 1.0f;
         public uint32[] mTextColors = sDefaultColors;
         public uint32 mHiliteColor = 0xFF2f5c88;
         public uint32 mUnfocusedHiliteColor = 0x00000000;
@@ -67,6 +68,9 @@ namespace Beefy.theme.dark
 		public Range? mLineRange;
 
 		protected static uint32[] sDefaultColors = new uint32[] ( Color.White ) ~ delete _;
+		public static bool sDebugMultiCursor;
+
+		public float LineHeight => Math.Max(Math.Round(mFont.GetLineSpacing() * mLineHeightScale), 1);
 
         public this(EditWidgetContent refContent = null) : base(refContent)
         {
@@ -79,6 +83,8 @@ namespace Beefy.theme.dark
             mHeight = GS!(24);
             mHorzJumpSize = GS!(40);
             mFont = DarkTheme.sDarkTheme?.mSmallFont;
+			mTextColors[0] = DarkTheme.COLOR_TEXT;
+			mHiliteColor = DarkTheme.COLOR_TEXT_SELECTED;
         }
 
 		protected override EditWidgetContent.Data CreateEditData()
@@ -102,7 +108,7 @@ namespace Beefy.theme.dark
 			mLineCoords.GrowUninitialized(mData.mLineStarts.Count);
 			mLineCoordJumpTable.Clear();
 
-			float fontHeight = mFont.GetLineSpacing();
+			float fontHeight = LineHeight;
 			int prevJumpIdx = -1;
 			float jumpCoordSpacing = GetJumpCoordSpacing();
 
@@ -212,6 +218,13 @@ namespace Beefy.theme.dark
 			return defaultVal;
 		}
 
+		public float GetTextOffset()
+		{
+			float baseLineSpacing = mFont.GetLineSpacing();
+			float lineSpacing = LineHeight;
+			return lineSpacing / 2.0f - baseLineSpacing / 2.0f;
+		}
+
 		public int FindUncollapsedLine(int line)
 		{
 			var line;
@@ -231,9 +244,9 @@ namespace Beefy.theme.dark
 			return mLineCoords[anchorLine + 1] == mLineCoords[checkLine + 1];
 		}
 
-		protected override void AdjustCursorsAfterExternalEdit(int index, int ofs)
+		protected override void AdjustCursorsAfterExternalEdit(int index, int ofs, int lineOfs)
  		{
-			 base.AdjustCursorsAfterExternalEdit(index, ofs);
+			 base.AdjustCursorsAfterExternalEdit(index, ofs, lineOfs);
 			 mWantsCheckScrollPosition = true;
 		}
 
@@ -507,7 +520,7 @@ namespace Beefy.theme.dark
 				((embed.mKind == .HideLine) && (!hideLine)))
 				selStartX += GS!(4);
 
-			Rect rect = .(selStartX, mLineCoords[lineIdx] - GS!(1), embed.GetWidth(hideLine), mFont.GetLineSpacing() + GS!(3));
+			Rect rect = .(selStartX, mLineCoords[lineIdx] - GS!(1) + GetTextOffset(), embed.GetWidth(hideLine), mFont.GetLineSpacing() + GS!(3));
 			if (rect.mY < 0)
 				rect.mY = 0;
 			return rect;
@@ -524,7 +537,9 @@ namespace Beefy.theme.dark
 
 #unwarn
             int lineCount = GetLineCount();
-            float lineSpacing = mFont.GetLineSpacing();
+            float lineSpacing = LineHeight;
+			float fontLineSpacing = mFont.GetLineSpacing();
+			float textYOffset = GetTextOffset();
 
 			float offsetY = mTextInsets.mTop;
 			if (mHeight < lineSpacing)
@@ -540,9 +555,9 @@ namespace Beefy.theme.dark
             int selStartIdx = -1;
             int selEndIdx = -1;
 
-            if (mSelection != null)
+            if (CurSelection != null)
             {                
-                mSelection.Value.GetAsForwardSelect(out selStartIdx, out selEndIdx);
+                CurSelection.Value.GetAsForwardSelect(out selStartIdx, out selEndIdx);
                 GetLineCharAtIdx(selStartIdx, out selStartLine, out selStartCharIdx);
                 GetLineCharAtIdx(selEndIdx, out selEndLine, out selEndCharIdx);
             }
@@ -559,11 +574,11 @@ namespace Beefy.theme.dark
 
 			bool drewCursor = false;
 
-			void DrawCursor(float x, float y)
+			void DrawCursor(float x, float y, bool isSecondary = false)
 			{
 				if (mHiliteCurrentLine && selStartIdx == selEndIdx)
 				{
-					float thickness = 2 * (lineSpacing / 18);
+					float thickness = Math.Ceiling(2 * (Math.Floor(fontLineSpacing) / 18));
 					// This isn't quite the right value, but I'm not sure how to get this
 					// to properly highlight the whole line without getting cut off - this works well for now.
 					float totalLineWidth = mEditWidget.mScrollContentContainer.mWidth - thickness;
@@ -594,18 +609,28 @@ namespace Beefy.theme.dark
 			        if (mCharWidth <= 2)
 			        {
 			            using (g.PushColor(Color.Mult(cursorColor, Color.Get(brightness * 0.75f))))
-			                g.FillRect(x, y, GS!(2), lineSpacing);
+			                g.FillRect(x, y + textYOffset, GS!(2), fontLineSpacing);
 			        }
 			        else
 			        {
 			            using (g.PushColor(Color.Mult(cursorColor, Color.Get(brightness * 0.30f))))
-			                g.FillRect(x, y, mCharWidth, lineSpacing);
+			                g.FillRect(x, y + textYOffset, mCharWidth, fontLineSpacing);
 			        }
 			    }
 			    else
 			    {
+					float cursorY = y + textYOffset;
+					float cursorHeight = fontLineSpacing;
+					float cursorWidth = Math.Max(1.0f, GS!(1));
+
+					if ((sDebugMultiCursor) && (mTextCursors.Count > 1))
+					{
+						if (isSecondary)
+							cursorColor.A = (.)(cursorColor.A * 0.5f);
+					}
+
 					using (g.PushColor(Color.Mult(cursorColor, Color.Get(brightness))))
-			            g.FillRect(x, y, Math.Max(1.0f, GS!(1)), lineSpacing);
+			            g.FillRect(x, cursorY, cursorWidth, cursorHeight);
 			    }
 			    drewCursor = true;
 			}
@@ -699,7 +724,7 @@ namespace Beefy.theme.dark
                     }
 
                     float nextX = curX;
-                    nextX = DrawText(g, sectionText, curX, curY, curTypeIdAndFlags);                                        
+                    nextX = DrawText(g, sectionText, curX, curY + textYOffset, curTypeIdAndFlags);                                        
                     DrawSectionFlagsOver(g, curX, curY, nextX - curX, flags);
 
                     //int32 lineDrawStartColumn = lineDrawStart - lineStart;
@@ -707,17 +732,17 @@ namespace Beefy.theme.dark
                     if ((mEditWidget.mHasFocus) && (!drewCursor))
                     {
                         float aX = -1;
-                        if (mVirtualCursorPos != null)
+                        if (CurVirtualCursorPos != null)
                         {
-                            if ((lineIdx == mVirtualCursorPos.Value.mLine) && (lineDrawEnd == lineEnd))
+                            if ((lineIdx == CurVirtualCursorPos.Value.mLine) && (lineDrawEnd == lineEnd))
                             {
-                                aX = mVirtualCursorPos.Value.mColumn * mCharWidth;
+                                aX = CurVirtualCursorPos.Value.mColumn * mCharWidth;
                             }
                         }
-                        else if (mCursorTextPos >= lineDrawStart)
+                        else if (CurCursorTextPos >= lineDrawStart)
                         {
-                            bool isInside = mCursorTextPos < lineDrawEnd;
-                            if ((mCursorTextPos == lineDrawEnd) && (lineDrawEnd == lineEnd))
+                            bool isInside = CurCursorTextPos < lineDrawEnd;
+                            if ((CurCursorTextPos == lineDrawEnd) && (lineDrawEnd == lineEnd))
                             {                                
                                 if (lineDrawEnd == mData.mTextLength)
                                     isInside = true;
@@ -732,8 +757,8 @@ namespace Beefy.theme.dark
 
                             if (isInside)
                             {
-								String subText = new:ScopedAlloc! String(mCursorTextPos - lineDrawStart);
-								subText.Append(sectionText, 0, mCursorTextPos - lineDrawStart);
+								String subText = new:ScopedAlloc! String(CurCursorTextPos - lineDrawStart);
+								subText.Append(sectionText, 0, CurCursorTextPos - lineDrawStart);
                                 aX = GetTabbedWidth(subText, curX);
                             }
                         }                        
@@ -760,6 +785,95 @@ namespace Beefy.theme.dark
 						DrawCursor(embedRect.Right + GS!(2), curY);
 				}
             }
+
+			if (mEditWidget.mHasFocus)
+			{
+				void DrawSelection(int line, int startColumn, int endColumn)
+				{
+					float x = startColumn * mCharWidth;
+					float y = mLineCoords[line];
+					float width = Math.Abs(startColumn - endColumn) * mCharWidth;
+					float height = mLineCoords[line + 1] - y;
+
+					using (g.PushColor(mHiliteColor))
+						g.FillRect(x, y, width, height);
+				}
+
+				void DrawSelection()
+				{
+					if (!HasSelection())
+						return;
+
+					CurSelection.Value.GetAsForwardSelect(var startPos, var endPos);
+					GetLineColumnAtIdx(startPos, var startLine, var startColumn);
+					GetLineColumnAtIdx(endPos, var endLine, var endColumn);
+
+					// Selection is on the single line
+					if (startLine == endLine)
+					{
+						DrawSelection(startLine, startColumn, endColumn);
+						return;
+					}
+
+					// Selection goes across multiple lines
+
+					// First line
+					GetLinePosition(startLine, ?, var firstLineEndIdx);
+					GetLineColumnAtIdx(firstLineEndIdx, ?, var firstLineEndColumn);
+					DrawSelection(startLine, startColumn, firstLineEndColumn + 1);
+
+					for (var lineIdx = startLine + 1; lineIdx < endLine; lineIdx++)
+					{
+						GetLinePosition(lineIdx, var lineStart, var lineEnd);
+						GetLineColumnAtIdx(lineEnd, var line, var column);
+
+						if (column == 0)
+						{
+							// Blank line selected
+							var y = mLineCoords[line];
+							var height = mLineCoords[line + 1] - y;
+
+							using (g.PushColor(mHiliteColor))
+								g.FillRect(0, y, 4, height);
+						}
+						else
+						{
+							DrawSelection(line, 0, column + 1);
+						}
+					}
+
+					// Last line
+					DrawSelection(endLine, 0, endColumn);
+				}
+
+				var prevTextCursor = mCurrentTextCursor;
+				for (var cursor in mTextCursors)
+				{
+					if (cursor.mId == 0)
+						continue;
+
+					SetTextCursor(cursor);
+					DrawSelection();
+
+					float x = 0;
+					float y = 0;
+					if (cursor.mVirtualCursorPos.HasValue)
+					{
+						x = cursor.mVirtualCursorPos.Value.mColumn * mCharWidth;
+						y = mLineCoords[cursor.mVirtualCursorPos.Value.mLine];
+					}
+					else
+					{
+						GetLineCharAtIdx(cursor.mCursorTextPos, var eStartLine, var eStartCharIdx);
+						GetColumnAtLineChar(eStartLine, eStartCharIdx, var column);
+						x = column * mCharWidth;
+						y = mLineCoords[eStartLine];
+					}
+
+					DrawCursor(x, y, true);
+				}
+				SetTextCursor(prevTextCursor);
+			}
 
             g.PopMatrix();
 

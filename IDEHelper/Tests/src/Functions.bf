@@ -161,6 +161,7 @@ namespace Tests
 
 		interface ITest
 		{
+			void TestFunc();
 			static void Func();
 		}
 
@@ -178,9 +179,24 @@ namespace Tests
 		{
 			public static int sVal;
 
+			public void TestFunc() => Func();
+
 			public static void Func()
 			{
 				sVal = 123;
+			}
+
+			public static void TestDefer()
+			{
+				function void() func = => Func;
+				if (func != null)
+					defer:: func.Invoke();
+			}
+
+			public static void TestIFaceDefer()
+			{
+				ITest itest = scope Zoop();
+				defer itest.TestFunc();
 			}
 		}
 
@@ -253,6 +269,14 @@ namespace Tests
 			StructCRepr.Test();
 
 			ClassC<Zoop>.Test();
+			Test.Assert(Zoop.sVal == 123);
+
+			Zoop.sVal = 0;
+			Zoop.TestDefer();
+			Test.Assert(Zoop.sVal == 123);
+
+			Zoop.sVal = 0;
+			Zoop.TestIFaceDefer();
 			Test.Assert(Zoop.sVal == 123);
 		}
 	}

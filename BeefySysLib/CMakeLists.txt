@@ -142,6 +142,7 @@ file(GLOB SRC_FILES
     img/ImageUtils.cpp
     img/ImgEffects.cpp
     img/JPEGData.cpp
+    img/BMPData.cpp
     img/PNGData.cpp
     img/PSDReader.cpp
     img/PVRData.cpp
@@ -293,6 +294,7 @@ file(GLOB SRC_FILES
     util/MappedFile.cpp
     util/MathUtils.cpp
     util/Matrix4.cpp
+    util/MemLogger.cpp
     util/PerfTimer.cpp
     util/Point.cpp
     util/PolySpline.cpp

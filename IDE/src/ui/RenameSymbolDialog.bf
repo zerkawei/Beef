@@ -319,7 +319,7 @@ namespace IDE.ui
 				//  then that would have removed the selection anyway so we don't do the full-select in that case
 				if (ewc.CursorTextPos == mCursorPos)
 				{
-					ewc.mSelection = EditSelection(mStartIdx, mEndIdx);
+					ewc.CurSelection = EditSelection(mStartIdx, mEndIdx);
 					ewc.CursorTextPos = mEndIdx;
 				}
 			}
@@ -367,11 +367,7 @@ namespace IDE.ui
 						{
 							String lineStr = scope String();
 							editWidgetContent.ExtractString(lineStart, idx - lineStart, lineStr);
-
-							//String fileName = editData.mFilePath;
-							//String fileName = scope String();
-							//projectSource.GetFullImportPath(fileName);
-
+							lineStr.Trim();
 							gApp.mFindResultsPanel.QueueLine(editData, lineNum, 0, lineStr);
 							
 							wantsLine = false;
@@ -644,7 +640,7 @@ namespace IDE.ui
                 cursorPositions.Add((int32)sourceEditWidgetContent.CursorTextPos);
             }
 
-			var prevSelection = activeSourceEditWidgetContent.mSelection;
+			var prevSelection = activeSourceEditWidgetContent.CurSelection;
 
             for (int sourceIdx = 0; sourceIdx < mUpdatingProjectSources.Count; sourceIdx++)            
             {
@@ -719,7 +715,7 @@ namespace IDE.ui
                         editWidgetContent.mData.mUndoManager.Add(insertTextAction);
                         editWidgetContent.PhysInsertAtCursor(newStr, false);
 
-                        if (spanStart <= cursorPos)
+						if (spanStart + strLenDiff <= cursorPos)
                             cursorPos += strLenDiff;
                     }                    
 
@@ -744,7 +740,7 @@ namespace IDE.ui
 
             if ((mUpdateTextCount == 0) && (mKind == Kind.Rename))
             {
-				activeSourceEditWidgetContent.mSelection = prevSelection;
+				activeSourceEditWidgetContent.CurSelection = prevSelection;
             }
 
             mUpdateTextCount++;

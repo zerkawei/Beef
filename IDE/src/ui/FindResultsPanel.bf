@@ -185,9 +185,10 @@ namespace IDE.ui
 
 						char8* linePtr = line.Ptr;
 
-						bool lineMatched;
+						bool lineMatched = false;
 						if (mSearchOptions.mMatchWholeWord)
 						{
+							line.EnsureNullTerminator();
 							bool isNewStart = true;
 							int lineIdx = 0;
 							for (let c32 in line.DecodedChars)
@@ -744,7 +745,7 @@ namespace IDE.ui
 								if (matches)
 								{
 									editWidgetContent.CursorTextPos = i;
-									editWidgetContent.mSelection = EditSelection(i, i + mSearchOptions.mSearchString.Length);
+									editWidgetContent.CurSelection = EditSelection(i, i + mSearchOptions.mSearchString.Length);
 									var insertTextAction = new EditWidgetContent.InsertTextAction(editWidgetContent, mSearchOptions.mReplaceString, .None);
 									insertTextAction.mMoveCursor = false;
 									editWidgetContent.mData.mUndoManager.Add(insertTextAction);

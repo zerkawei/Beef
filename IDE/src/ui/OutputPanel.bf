@@ -127,7 +127,7 @@ namespace IDE.ui
 
 		public override void FocusForKeyboard()
 		{
-			mOutputWidget.mEditWidgetContent.mSelection = null;
+			mOutputWidget.mEditWidgetContent.CurSelection = null;
 			mOutputWidget.mEditWidgetContent.CursorLineAndColumn = EditWidgetContent.LineAndColumn(mOutputWidget.mEditWidgetContent.GetLineCount() - 1, 0);
 			mOutputWidget.mEditWidgetContent.EnsureCursorVisible();
 		}
@@ -287,7 +287,7 @@ namespace IDE.ui
 
 		public void WriteSmart(StringView text)
 		{
-			for (var line in text.Split('\n'))
+			LineLoop: for (var line in text.Split('\n'))
 			{
 				if (@line.Pos != 0)
 					Write("\n");
@@ -302,9 +302,20 @@ namespace IDE.ui
 
 					mQueuedDisplayChanges.Add(QueuedDisplayChange(mQueuedText.Length, "ERROR".Length, (.)SourceElementType.BuildError));
 				}
+				if (line.StartsWith("ERROR-SOFT:"))
+				{
+					var str = scope:LineLoop String(line);
+					str.Replace("ERROR-SOFT", "ERROR");
+					line = str;
+					mQueuedDisplayChanges.Add(QueuedDisplayChange(mQueuedText.Length, "ERROR".Length, (.)SourceElementType.BuildError));
+				}
 				if ((line.StartsWith("WARNING:")) || (line.StartsWith("WARNING(")))
 				{
 					mQueuedDisplayChanges.Add(QueuedDisplayChange(mQueuedText.Length, "WARNING".Length, (.)SourceElementType.BuildWarning));
+				}
+				if (line.StartsWith("SUCCESS:"))
+				{
+					mQueuedDisplayChanges.Add(QueuedDisplayChange(mQueuedText.Length, "SUCCESS".Length, (.)SourceElementType.BuildSuccess));
 				}
 				Write(line);
 			}

@@ -37,7 +37,7 @@ namespace IDE.ui
 
             mDefaultButton = AddButton("OK", new (evt) => GotoLineSubmit(true));
             mEscButton = AddButton("Cancel", new (evt) => Cancel());
-            mEditWidget = AddEdit(StackStringFormat!("{0}", line + 1));
+            mEditWidget = AddEdit(scope String()..AppendF("{0}", line + 1));
             mEditWidget.mOnContentChanged.Add(new (evt) => GotoLineSubmit(false));
         }
 
@@ -69,7 +69,7 @@ namespace IDE.ui
 
                 if (isFinal)
                 {
-                    editWidgetContent.Content.mSelection = null;
+                    editWidgetContent.Content.CurSelection = null;
                     mSourceViewPanel.RecordHistoryLocation();
                 }
                 else
@@ -77,7 +77,7 @@ namespace IDE.ui
                     int lineStart;
                     int lineEnd;
                     editWidgetContent.Content.GetLinePosition(line, out lineStart, out lineEnd);
-                    editWidgetContent.Content.mSelection = EditSelection(lineStart, lineEnd + 1);
+                    editWidgetContent.Content.CurSelection = EditSelection(lineStart, lineEnd + 1);
                 }
             }
 			else
@@ -100,7 +100,7 @@ namespace IDE.ui
         void Cancel()
         {
             var editWidgetContent = mSourceViewPanel.mEditWidget;
-            editWidgetContent.Content.mSelection = null;
+            editWidgetContent.Content.CurSelection = null;
 
             mSourceViewPanel.mEditWidget.Content.CursorTextPos = mCursorPos;
             mSourceViewPanel.mEditWidget.mVertPos.Set(mVertPos);

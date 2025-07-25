@@ -74,6 +74,7 @@ public:
 		int mQueuedTypesProcessed;
 		int mTypesQueued;
 		int mTypesDeleted;
+		int mTypesDeleted_LastUpdateAfterDeletingTypes;
 		int mMethodsQueued;
 
 		int mModulesStarted;
@@ -334,6 +335,7 @@ public:
 	bool mHasRequiredTypes;
 	bool mNeedsFullRefresh;
 	bool mFastFinish;
+	bool mExtraCompileRequested;
 	bool mHasQueuedTypeRebuilds; // Infers we had a fast finish that requires a type rebuild
 	bool mHadCancel;
 	bool mWantsDeferMethodDecls;
@@ -376,8 +378,10 @@ public:
 	BfTypeDef* mEnumTypeDef;
 	BfTypeDef* mStringTypeDef;
 	BfTypeDef* mStringViewTypeDef;
+	BfTypeDef* mTypeTypeDeclDef;
 	BfTypeDef* mTypeTypeDef;
 	BfTypeDef* mValueTypeTypeDef;
+	BfTypeDef* mTupleTypeDef;
 	BfTypeDef* mResultTypeDef;
 	BfTypeDef* mGCTypeDef;
 	BfTypeDef* mGenericIEnumerableTypeDef;
@@ -444,6 +448,7 @@ public:
 	BfTypeDef* mFriendAttributeTypeDef;
 	BfTypeDef* mNoStaticCtorAttributeTypeDef;
 	BfTypeDef* mComptimeAttributeTypeDef;
+	BfTypeDef* mIntrinsicAttributeTypeDef;
 	BfTypeDef* mConstEvalAttributeTypeDef;
 	BfTypeDef* mNoExtensionAttributeTypeDef;
 	BfTypeDef* mCheckedAttributeTypeDef;
@@ -472,7 +477,7 @@ public:
 
 public:
 	bool IsTypeAccessible(BfType* checkType, BfProject* curProject);
-	bool IsTypeUsed(BfType* checkType, BfProject* curProject);
+	bool IsTypeUsed(BfType* checkType, BfProject* curProject, bool conservativeCheck = false);
 	bool IsModuleAccessible(BfModule* module, BfProject* curProject);
 	void FixVDataHash(BfModule* bfModule);
 	void CheckModuleStringRefs(BfModule* module, BfVDataModule* vdataModule, int lastModuleRevision, HashSet<int>& foundStringIds, HashSet<int>& dllNameSet, Array<BfMethodInstance*>& dllMethods, Array<BfCompiler::StringValueEntry>& stringValueEntries);
@@ -543,6 +548,7 @@ public:
 	void GetSymbolReferences();
 	void Cancel();
 	void RequestFastFinish();
+	void RequestExtraCompile();
 	String GetTypeDefList(bool includeLocation);
 	String GetGeneratorString(BfTypeDef* typeDef, BfTypeInstance* typeInst, const StringImpl& generatorMethodName, const StringImpl* args);
 	void HandleGeneratorErrors(StringImpl& result);
