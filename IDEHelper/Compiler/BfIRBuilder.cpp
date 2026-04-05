@@ -3049,6 +3049,7 @@ void BfIRBuilder::CreateTypeDeclaration(BfType* type, bool forceDbgDefine)
 					break;
 				case BfTypeCode_Float:
 				case BfTypeCode_Double:
+				case BfTypeCode_Float2:
 					dwarfType = llvm::dwarf::DW_ATE_float;
 					break;
 				default:

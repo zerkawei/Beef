@@ -1,6 +1,7 @@
 #include "BeefySysLib/util/AllocDebug.h"
 
 #include "BfCompiler.h"
+#include "BfIRBuilder.h"
 #include "BfSystem.h"
 #include "BfParser.h"
 #include "BfReducer.h"
@@ -1714,6 +1715,9 @@ void BfModule::PopulateType(BfType* resolvedTypeRef, BfPopulateType populateType
 			return;
 		case BfTypeCode_Double:
 			PRIMITIVE_TYPE("double", Double, 8, DW_ATE_float);
+			return;
+		case BfTypeCode_Float2:
+			PRIMITIVE_TYPE("vec2", Float, 8, DW_ATE_float);
 			return;
 		case BfTypeCode_Object:
 		case BfTypeCode_Struct:
@@ -8105,6 +8109,8 @@ BfPrimitiveType* BfModule::GetPrimitiveType(BfTypeCode typeCode)
 		case BfTypeCode_StringId:
 			BFMODULE_FATAL(this, "Invalid use of StringId");
 			break;
+		case BfTypeCode_Float2:
+			primType = (BfPrimitiveType*)ResolveTypeDef(mSystem->mTypeFloat2);
 		default:
 			BF_DBG_FATAL("Invalid type");
 			break;
@@ -8390,6 +8396,8 @@ BfTypeInstance* BfModule::GetPrimitiveStructType(BfTypeCode typeCode)
 		typeInst = ResolveTypeDef(mSystem->FindTypeDef("System.Float"), BfPopulateType_Identity)->ToTypeInstance(); break;
 	case BfTypeCode_Double:
 		typeInst = ResolveTypeDef(mSystem->FindTypeDef("System.Double"), BfPopulateType_Identity)->ToTypeInstance(); break;
+	case BfTypeCode_Float2:
+		typeInst = ResolveTypeDef(mSystem->FindTypeDef("System.Vec2"), BfPopulateType_Identity)->ToTypeInstance(); break;
 	default:
 		//BF_FATAL("not implemented");
 		break;
@@ -12099,7 +12107,7 @@ BfType* BfModule::ResolveTypeRef_Ref(BfTypeReference* typeRef, BfPopulateType po
 	{
 		//BF_ASSERT(typeDefTypeRef->mTypeDef != NULL); // Resolved higher up
 		//auto typeDef = typeDefTypeRef->mTypeDef;
-		if ((typeDef->mTypeCode >= BfTypeCode_None) && (typeDef->mTypeCode <= BfTypeCode_Double))
+		if ((typeDef->mTypeCode >= BfTypeCode_None) && (typeDef->mTypeCode <= BfTypeCode_Float2))
 		{
 			BfPrimitiveType* primType = new BfPrimitiveType();
 			primType->mTypeDef = typeDef;

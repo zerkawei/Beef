@@ -2430,6 +2430,7 @@ void BfSystem::CreateBasicTypes()
 	SYSTEM_TYPE(mTypeChar32, "char32", BfTypeCode_Char32);
 	SYSTEM_TYPE(mTypeSingle, "float", BfTypeCode_Float);
 	SYSTEM_TYPE(mTypeDouble, "double", BfTypeCode_Double);
+	SYSTEM_TYPE(mTypeFloat2, "vec2", BfTypeCode_Float2);
 }
 
 bool BfSystem::DoesLiteralFit(BfTypeCode typeCode, int64 value)

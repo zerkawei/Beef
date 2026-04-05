@@ -2459,7 +2459,7 @@ void BfIRCodeGen::HandleNextCmd()
 		{
 			CMD_PARAM(llvm::Value*, lhs);
 			CMD_PARAM(llvm::Value*, rhs);
-			if (lhs->getType()->isFloatingPointTy())
+			if (lhs->getType()->getScalarType()->isFloatingPointTy())
 				SetResult(curId, mIRBuilder->CreateFCmpOEQ(lhs, rhs));
 			else
 				SetResult(curId, mIRBuilder->CreateICmpEQ(lhs, rhs));
@@ -2469,7 +2469,7 @@ void BfIRCodeGen::HandleNextCmd()
 		{
 			CMD_PARAM(llvm::Value*, lhs);
 			CMD_PARAM(llvm::Value*, rhs);
-			if (lhs->getType()->isFloatingPointTy())
+			if (lhs->getType()->getScalarType()->isFloatingPointTy())
 				SetResult(curId, mIRBuilder->CreateFCmpUNE(lhs, rhs));
 			else
 				SetResult(curId, mIRBuilder->CreateICmpNE(lhs, rhs));
@@ -2479,7 +2479,7 @@ void BfIRCodeGen::HandleNextCmd()
 		{
 			CMD_PARAM(llvm::Value*, lhs);
 			CMD_PARAM(llvm::Value*, rhs);
-			if (lhs->getType()->isFloatingPointTy())
+			if (lhs->getType()->getScalarType()->isFloatingPointTy())
 				SetResult(curId, mIRBuilder->CreateFCmpOLT(lhs, rhs));
 			else
 				SetResult(curId, mIRBuilder->CreateICmpSLT(lhs, rhs));
@@ -2489,7 +2489,7 @@ void BfIRCodeGen::HandleNextCmd()
 		{
 			CMD_PARAM(llvm::Value*, lhs);
 			CMD_PARAM(llvm::Value*, rhs);
-			if (lhs->getType()->isFloatingPointTy())
+			if (lhs->getType()->getScalarType()->isFloatingPointTy())
 				SetResult(curId, mIRBuilder->CreateFCmpOLT(lhs, rhs));
 			else
 				SetResult(curId, mIRBuilder->CreateICmpULT(lhs, rhs));
@@ -2499,7 +2499,7 @@ void BfIRCodeGen::HandleNextCmd()
 		{
 			CMD_PARAM(llvm::Value*, lhs);
 			CMD_PARAM(llvm::Value*, rhs);
-			if (lhs->getType()->isFloatingPointTy())
+			if (lhs->getType()->getScalarType()->isFloatingPointTy())
 				SetResult(curId, mIRBuilder->CreateFCmpOLE(lhs, rhs));
 			else
 				SetResult(curId, mIRBuilder->CreateICmpSLE(lhs, rhs));
@@ -2509,7 +2509,7 @@ void BfIRCodeGen::HandleNextCmd()
 		{
 			CMD_PARAM(llvm::Value*, lhs);
 			CMD_PARAM(llvm::Value*, rhs);
-			if (lhs->getType()->isFloatingPointTy())
+			if (lhs->getType()->getScalarType()->isFloatingPointTy())
 				SetResult(curId, mIRBuilder->CreateFCmpOLE(lhs, rhs));
 			else
 				SetResult(curId, mIRBuilder->CreateICmpULE(lhs, rhs));
@@ -2519,7 +2519,7 @@ void BfIRCodeGen::HandleNextCmd()
 		{
 			CMD_PARAM(llvm::Value*, lhs);
 			CMD_PARAM(llvm::Value*, rhs);
-			if (lhs->getType()->isFloatingPointTy())
+			if (lhs->getType()->getScalarType()->isFloatingPointTy())
 				SetResult(curId, mIRBuilder->CreateFCmpOGT(lhs, rhs));
 			else
 				SetResult(curId, mIRBuilder->CreateICmpSGT(lhs, rhs));
@@ -2529,7 +2529,7 @@ void BfIRCodeGen::HandleNextCmd()
 		{
 			CMD_PARAM(llvm::Value*, lhs);
 			CMD_PARAM(llvm::Value*, rhs);
-			if (lhs->getType()->isFloatingPointTy())
+			if (lhs->getType()->getScalarType()->isFloatingPointTy())
 				SetResult(curId, mIRBuilder->CreateFCmpOGT(lhs, rhs));
 			else
 				SetResult(curId, mIRBuilder->CreateICmpUGT(lhs, rhs));
@@ -2539,7 +2539,7 @@ void BfIRCodeGen::HandleNextCmd()
 		{
 			CMD_PARAM(llvm::Value*, lhs);
 			CMD_PARAM(llvm::Value*, rhs);
-			if (lhs->getType()->isFloatingPointTy())
+			if (lhs->getType()->getScalarType()->isFloatingPointTy())
 				SetResult(curId, mIRBuilder->CreateFCmpOGE(lhs, rhs));
 			else
 				SetResult(curId, mIRBuilder->CreateICmpSGE(lhs, rhs));
@@ -2549,7 +2549,7 @@ void BfIRCodeGen::HandleNextCmd()
 		{
 			CMD_PARAM(llvm::Value*, lhs);
 			CMD_PARAM(llvm::Value*, rhs);
-			if (lhs->getType()->isFloatingPointTy())
+			if (lhs->getType()->getScalarType()->isFloatingPointTy())
 				SetResult(curId, mIRBuilder->CreateFCmpOGE(lhs, rhs));
 			else
 				SetResult(curId, mIRBuilder->CreateICmpUGE(lhs, rhs));
@@ -2561,7 +2561,7 @@ void BfIRCodeGen::HandleNextCmd()
 			CMD_PARAM(llvm::Value*, lhs);
 			CMD_PARAM(llvm::Value*, rhs);
 			CMD_PARAM(int8, overflowCheckKind);
-			if (lhs->getType()->isFloatingPointTy())
+			if (lhs->getType()->getScalarType()->isFloatingPointTy())
 				SetResult(curId, mIRBuilder->CreateFAdd(lhs, rhs));
 			else if ((overflowCheckKind & (BfOverflowCheckKind_Signed | BfOverflowCheckKind_Unsigned)) != 0)
 				SetResult(curId, DoCheckedIntrinsic(((overflowCheckKind & BfOverflowCheckKind_Signed) != 0) ? llvm::Intrinsic::sadd_with_overflow : llvm::Intrinsic::uadd_with_overflow,
@@ -2575,7 +2575,7 @@ void BfIRCodeGen::HandleNextCmd()
 			CMD_PARAM(llvm::Value*, lhs);
 			CMD_PARAM(llvm::Value*, rhs);
 			CMD_PARAM(int8, overflowCheckKind);
-			if (lhs->getType()->isFloatingPointTy())
+			if (lhs->getType()->getScalarType()->isFloatingPointTy())
 				SetResult(curId, mIRBuilder->CreateFSub(lhs, rhs));
 			else if ((overflowCheckKind & (BfOverflowCheckKind_Signed | BfOverflowCheckKind_Unsigned)) != 0)
 				SetResult(curId, DoCheckedIntrinsic(((overflowCheckKind & BfOverflowCheckKind_Signed) != 0) ? llvm::Intrinsic::ssub_with_overflow : llvm::Intrinsic::usub_with_overflow,
@@ -2589,7 +2589,7 @@ void BfIRCodeGen::HandleNextCmd()
 			CMD_PARAM(llvm::Value*, lhs);
 			CMD_PARAM(llvm::Value*, rhs);
 			CMD_PARAM(int8, overflowCheckKind);
-			if (lhs->getType()->isFloatingPointTy())
+			if (lhs->getType()->getScalarType()->isFloatingPointTy())
 				SetResult(curId, mIRBuilder->CreateFMul(lhs, rhs));
 			else if ((overflowCheckKind & (BfOverflowCheckKind_Signed | BfOverflowCheckKind_Unsigned)) != 0)
 				SetResult(curId, DoCheckedIntrinsic(((overflowCheckKind & BfOverflowCheckKind_Signed) != 0) ? llvm::Intrinsic::smul_with_overflow : llvm::Intrinsic::umul_with_overflow,
@@ -2602,7 +2602,7 @@ void BfIRCodeGen::HandleNextCmd()
 		{
 			CMD_PARAM(llvm::Value*, lhs);
 			CMD_PARAM(llvm::Value*, rhs);
-			if (lhs->getType()->isFloatingPointTy())
+			if (lhs->getType()->getScalarType()->isFloatingPointTy())
 				SetResult(curId, mIRBuilder->CreateFDiv(lhs, rhs));
 			else
 				SetResult(curId, mIRBuilder->CreateSDiv(lhs, rhs));
@@ -2619,7 +2619,7 @@ void BfIRCodeGen::HandleNextCmd()
 		{
 			CMD_PARAM(llvm::Value*, lhs);
 			CMD_PARAM(llvm::Value*, rhs);
-			if (lhs->getType()->isFloatingPointTy())
+			if (lhs->getType()->getScalarType()->isFloatingPointTy())
 				SetResult(curId, mIRBuilder->CreateFRem(lhs, rhs));
 			else
 				SetResult(curId, mIRBuilder->CreateSRem(lhs, rhs));
@@ -2677,7 +2677,7 @@ void BfIRCodeGen::HandleNextCmd()
 	case BfIRCmd_Neg:
 		{
 			CMD_PARAM(llvm::Value*, val);
-			if (val->getType()->isFloatingPointTy())
+			if (val->getType()->getScalarType()->isFloatingPointTy())
 				SetResult(curId, mIRBuilder->CreateFNeg(val));
 			else
 				SetResult(curId, mIRBuilder->CreateNeg(val));

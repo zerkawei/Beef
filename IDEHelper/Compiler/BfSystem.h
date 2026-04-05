@@ -1874,6 +1874,7 @@ public:
 	BfTypeDef* mTypeChar32;
 	BfTypeDef* mTypeSingle;
 	BfTypeDef* mTypeDouble;
+	BfTypeDef* mTypeFloat2;
 
 	BfDirectStrTypeReference* mDirectVoidTypeRef;
 	BfDirectStrTypeReference* mDirectBoolTypeRef;
