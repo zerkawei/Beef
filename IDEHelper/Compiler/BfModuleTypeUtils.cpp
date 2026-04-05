@@ -12107,10 +12107,29 @@ BfType* BfModule::ResolveTypeRef_Ref(BfTypeReference* typeRef, BfPopulateType po
 	{
 		//BF_ASSERT(typeDefTypeRef->mTypeDef != NULL); // Resolved higher up
 		//auto typeDef = typeDefTypeRef->mTypeDef;
-		if ((typeDef->mTypeCode >= BfTypeCode_None) && (typeDef->mTypeCode <= BfTypeCode_Float2))
+		if ((typeDef->mTypeCode >= BfTypeCode_None) && (typeDef->mTypeCode <= BfTypeCode_Double))
 		{
 			BfPrimitiveType* primType = new BfPrimitiveType();
 			primType->mTypeDef = typeDef;
+			resolvedEntry->mValue = primType;
+			BF_ASSERT(BfResolvedTypeSet::Hash(primType, &lookupCtx, false) == resolvedEntry->mHashCode);
+			populateModule->InitType(primType, populateType);
+			return ResolveTypeResult(typeRef, primType, populateType, resolveFlags);
+		}
+
+		if ((typeDef->mTypeCode >= BfTypeCode_Float2) && (typeDef->mTypeCode <= BfTypeCode_Float2))
+		{
+			BfVectorType* primType = new BfVectorType();
+			primType->mTypeDef = typeDef;
+			switch (typeDef->mTypeCode)
+			{
+				case BfTypeCode_Float2:
+					primType->mElementType = GetPrimitiveType(BfTypeCode_Float);
+					break;
+				default:
+					break;
+			}
+
 			resolvedEntry->mValue = primType;
 			BF_ASSERT(BfResolvedTypeSet::Hash(primType, &lookupCtx, false) == resolvedEntry->mHashCode);
 			populateModule->InitType(primType, populateType);

@@ -644,6 +644,7 @@ public:
 	virtual bool IsTypeMemberAccessible(BfTypeDef* declaringTypeDef, BfTypeDef* activeTypeDef) { return true; }
 	virtual bool IsTypeMemberAccessible(BfTypeDef* declaringTypeDef, BfProject* curProject) { return true; }
 	virtual bool IsTypeMemberAccessible(BfTypeDef* declaringTypeDef, BfProjectSet* visibleProjectSet) { return true; }
+	virtual bool IsVector() { return false; }
 
 	virtual void ReportMemory(MemReporter* memReporter);
 };
@@ -711,6 +712,16 @@ public:
 	virtual bool IsLet() override { return mTypeDef->mTypeCode == BfTypeCode_Let; }
 	virtual bool IsUnspecializedType() override { return mTypeDef->mTypeCode == BfTypeCode_Self; }
 	virtual bool IsUnspecializedTypeVariation() override { return mTypeDef->mTypeCode == BfTypeCode_Self; }
+};
+
+class BfVectorType : public BfPrimitiveType
+{
+public:
+	BfType* mElementType;
+	
+public:
+	virtual bool IsVector() override { return true; }
+	virtual BfType* GetUnderlyingType() override { return mElementType; }
 };
 
 class BfTypeInstance;

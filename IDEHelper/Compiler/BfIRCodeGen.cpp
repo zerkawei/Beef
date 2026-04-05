@@ -2840,6 +2840,17 @@ void BfIRCodeGen::HandleNextCmd()
 			SetResult(curId, result);
 		}
 		break;
+	case BfIRCmd_ExtractElement:
+		{
+			CMD_PARAM(BfIRTypedValue, val);
+			CMD_PARAM(BfIRTypedValue, idx);
+
+			BfIRTypedValue result;
+			result.mTypeEx = val.mTypeEx;
+			result.mValue = mIRBuilder->CreateExtractElement(val.mValue, idx.mValue);
+			SetResult(curId, result);
+		}
+		break;
 	case BfIRCmd_Alloca:
 		{
 			CMD_PARAM(BfIRTypeEx*, type);

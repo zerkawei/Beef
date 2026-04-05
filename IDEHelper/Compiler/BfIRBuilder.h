@@ -226,6 +226,7 @@ enum BfIRCmd : uint8
 	BfIRCmd_IsNotNull,
 	BfIRCmd_ExtractValue,
 	BfIRCmd_InsertValue,
+	BfIRCmd_ExtractElement,
 
 	BfIRCmd_Alloca,
 	BfIRCmd_AllocaArray,
@@ -1263,6 +1264,7 @@ public:
 	BfIRValue CreateExtractValue(BfIRValue val, int idx);
 	BfIRValue CreateExtractValue(BfIRValue val, BfIRValue idx);
 	BfIRValue CreateInsertValue(BfIRValue agg, BfIRValue val, int idx);
+	BfIRValue CreateExtractElement(BfIRValue val, BfIRValue idx);
 
 	BfIRValue CreateAlloca(BfIRType type);
 	BfIRValue CreateAlloca(BfIRType type, BfIRValue arraySize);

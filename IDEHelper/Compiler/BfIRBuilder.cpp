@@ -5063,6 +5063,13 @@ BfIRValue BfIRBuilder::CreateInsertValue(BfIRValue agg, BfIRValue val, int idx)
 	return retVal;
 }
 
+BfIRValue BfIRBuilder::CreateExtractElement(BfIRValue val, BfIRValue idx)
+{
+	BfIRValue retVal = WriteCmd(BfIRCmd_ExtractElement, val, idx);
+	NEW_CMD_INSERTED_IRVALUE;
+	return retVal;
+}
+
 BfIRValue BfIRBuilder::CreateAlloca(BfIRType type)
 {
 	BfIRValue retVal = WriteCmd(BfIRCmd_Alloca, type);

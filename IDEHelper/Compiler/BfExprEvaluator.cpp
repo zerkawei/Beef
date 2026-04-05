@@ -23165,7 +23165,7 @@ void BfExprEvaluator::HandleIndexerExpression(BfIndexerExpression* indexerExpr, 
 		return;
 	}	
 
-	if ((!target.mType->IsPointer()) && (!target.mType->IsSizedArray()))
+	if ((!target.mType->IsPointer()) && (!target.mType->IsSizedArray()) && (!target.mType->IsVector()))
 	{
 		mModule->Fail("Expected pointer or array type", indexerExpr->mTarget);
 		return;
@@ -23364,6 +23364,16 @@ void BfExprEvaluator::HandleIndexerExpression(BfIndexerExpression* indexerExpr, 
 			mModule->Fail("Unable to index value", indexerExpr->mTarget);
 			return;
 		}
+	}
+	else if (target.mType->IsVector()) 
+	{
+		target = mModule->LoadValue(target);
+		BfVectorType* pointerType = (BfVectorType*)target.mType;
+		auto underlyingType = pointerType->mElementType;
+		mModule->mBfIRBuilder->PopulateType(underlyingType);
+
+		BfIRValue result = mModule->mBfIRBuilder->CreateExtractElement(target.mValue, indexArgument.mValue);
+		mResult = BfTypedValue(result, underlyingType, BfTypedValueKind_Value);
 	}
 	else
 	{
