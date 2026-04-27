@@ -10,7 +10,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - run: bin/build.bat
   build-linux:
     name: Build on Linux
@@ -21,11 +21,23 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - run: |
           sudo apt-get update
           sudo apt-get install llvm-19-dev
       - run: bin/build.sh
+      - run: |
+          sudo gem install fpm
+          bin/install.sh install/opt/BeefLang
+          bin/package.sh
+        name: Package compiler
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Packages
+          path: package/
+          if-no-files-found: ignore
   build-macos:
     name: Build on macOS
     strategy:
@@ -35,7 +47,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - run: |
           brew update
           brew install llvm@19

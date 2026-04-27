@@ -1,0 +1,9 @@
+-s dir
+--name beeflang
+--provides beeflang
+--license MIT
+--description "High-performance multi-paradigm programming language focused on developer productivity"
+--architecture native
+--url "https://www.beeflang.org/"
+--maintainer "zerkawei <zkw@zerkawei.fr>"
+install/=/
